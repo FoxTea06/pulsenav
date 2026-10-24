@@ -281,7 +281,7 @@
   </aside>
 
   <!-- BOTTOM-LEFT LIVE CONVOY BUTTON & SPEEDOMETER STACK (Waze Style) -->
-  <div class="fixed left-3 sm:left-4 bottom-28 sm:bottom-32 z-[950] flex flex-col items-center gap-2.5">
+  <div id="bottomLeftControls" class="fixed left-3 sm:left-4 bottom-28 sm:bottom-32 z-[950] flex flex-col items-center gap-2.5">
     <!-- Live Convoy Button (Above Speedometer) -->
     <button
       id="openConvoyModalBtn"
@@ -314,7 +314,7 @@
   </div>
 
   <!-- BOTTOM-RIGHT RECENTER & REPORT FAB STACK (Waze Style) -->
-  <div class="fixed right-3 sm:right-4 bottom-28 sm:bottom-32 z-[960] flex flex-col items-end gap-2.5">
+  <div id="bottomRightControls" class="fixed right-3 sm:right-4 bottom-28 sm:bottom-32 z-[960] flex flex-col items-end gap-2.5">
     <!-- Waze Style Recenter Button (Directly above Report button, aligned to the right) -->
     <button
       id="recenterBtn"
@@ -341,7 +341,7 @@
   </div>
 
   <!-- BOTTOM SHEET: WAZE "WHERE TO?" SEARCH / GPS STATUS / ROUTE PREVIEW / NAVIGATION HUD -->
-  <section class="fixed bottom-0 left-0 right-0 z-[1000] p-3 sm:p-4 pointer-events-none flex justify-center">
+  <section id="bottomAppSheet" class="fixed bottom-0 left-0 right-0 z-[1000] p-3 sm:p-4 pointer-events-none flex justify-center">
     <div class="w-full max-w-xl pointer-events-auto flex flex-col gap-2">
 
       <!-- STATE A: WAZE "WHERE TO?" SEARCH BAR & POI CHIPS (Idle / Map browsing mode) -->

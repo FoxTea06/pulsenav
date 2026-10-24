@@ -138,6 +138,14 @@ body.nav-mode-3d #hazardApproachToast {
   }
 }
 
+/* Dynamically position bottom floating controls (Speedometer, Convoy, Recenter, Report) smoothly above whatever bottom card is active */
+#bottomLeftControls,
+#bottomRightControls {
+  transition: bottom 0.35s cubic-bezier(0.2, 0.95, 0.35, 1);
+  bottom: calc(var(--bottom-overlays-height, 10.75rem) + 0.85rem) !important;
+  z-index: 960;
+}
+
 /* ========================================================
    GPS USER MARKER: 2D PUCK vs 3D WAZE VEHICLE ARROW
    ======================================================== */

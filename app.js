@@ -2071,6 +2071,7 @@
     document.getElementById('idleBottomBar').classList.add('hidden');
     document.getElementById('activeNavHud').classList.add('hidden');
     document.getElementById('routePreviewCard').classList.remove('hidden');
+    syncBottomControlsPosition();
     document.getElementById('previewDestName').textContent = dest.name;
     document.getElementById('previewDestAddress').textContent = 'Calculating route...';
 
@@ -3429,6 +3430,7 @@
     document.getElementById('idleBottomBar').classList.add('hidden');
     document.getElementById('activeNavHud').classList.add('hidden');
     document.getElementById('routePreviewCard').classList.remove('hidden');
+    syncBottomControlsPosition();
 
     document.getElementById('previewDestName').textContent = dest.name;
     document.getElementById('previewDestAddress').textContent = primary.summary;
@@ -3532,6 +3534,7 @@
     document.getElementById('destinationInput').value = '';
     document.getElementById('clearSearchBtn').classList.add('hidden');
     document.getElementById('searchDropdown').classList.add('hidden');
+    syncBottomControlsPosition();
 
     if (state.convoy.activeCode && state.convoy.role === 'leader') {
       syncLeaderStateToConvoy('idle');
@@ -3563,6 +3566,35 @@
       document.documentElement.style.removeProperty('--top-overlays-bottom');
       document.documentElement.style.removeProperty('--tbt-banner-bottom');
       document.body.classList.remove('has-top-banner');
+    }
+    syncBottomControlsPosition();
+  }
+
+  /** Dynamically elevate bottom floating controls (Speedometer, Convoy, Recenter, Report) safely above active bottom cards */
+  function syncBottomControlsPosition() {
+    const bottomSheet = document.getElementById('bottomAppSheet') || document.querySelector('section.fixed.bottom-0');
+    if (!bottomSheet) return;
+
+    const cards = [
+      document.getElementById('searchHeader'),
+      document.getElementById('idleBottomBar'),
+      document.getElementById('routePreviewCard'),
+      document.getElementById('activeNavHud')
+    ];
+
+    let maxDistFromBottom = 0;
+    cards.forEach((card) => {
+      if (card && !card.classList.contains('hidden') && card.offsetParent !== null) {
+        const rect = card.getBoundingClientRect();
+        const dist = window.innerHeight - rect.top;
+        if (dist > maxDistFromBottom) {
+          maxDistFromBottom = dist;
+        }
+      }
+    });
+
+    if (maxDistFromBottom > 0) {
+      document.documentElement.style.setProperty('--bottom-overlays-height', `${Math.round(maxDistFromBottom)}px`);
     }
   }
 
@@ -5438,7 +5470,10 @@
     });
 
     // Synchronize navigation controls spacing on screen resize / orientation changes
-    window.addEventListener('resize', syncNavControlsPosition);
+    window.addEventListener('resize', () => {
+      syncNavControlsPosition();
+      syncBottomControlsPosition();
+    });
 
     // Automatically observe top overlay banners (turn-by-turn instruction, convoy pill) to dynamically avoid overlaps
     const topHeader = document.getElementById('topAppHeader') || document.querySelector('header');
@@ -5454,6 +5489,24 @@
       });
       headerMutObserver.observe(topHeader, { attributes: true, subtree: true, childList: true });
     }
+
+    // Automatically observe bottom sheet cards (search bar, route preview, active nav hud) to dynamically avoid overlaps
+    const bottomSheet = document.getElementById('bottomAppSheet') || document.querySelector('section.fixed.bottom-0');
+    if (bottomSheet && window.ResizeObserver) {
+      const bottomObserver = new ResizeObserver(() => {
+        syncBottomControlsPosition();
+      });
+      bottomObserver.observe(bottomSheet);
+    }
+    if (bottomSheet && window.MutationObserver) {
+      const bottomMutObserver = new MutationObserver(() => {
+        syncBottomControlsPosition();
+      });
+      bottomMutObserver.observe(bottomSheet, { attributes: true, subtree: true, childList: true });
+    }
+
+    syncBottomControlsPosition();
+    requestAnimationFrame(syncBottomControlsPosition);
 
     // Cleanly remove driver from active convoy if tab/window is closed
     window.addEventListener('beforeunload', () => {
