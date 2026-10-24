@@ -175,6 +175,12 @@ body.nav-mode-3d .gps-user-marker .nav-vehicle-arrow-wrapper {
   display: flex !important;
 }
 
+/* In Ride Mode (Active Navigation): Arrow is locked pointing straight UP like Waze */
+body.nav-mode-active #navVehicleChevron,
+body.nav-mode-3d #navVehicleChevron {
+  transform: rotate(0deg) !important;
+}
+
 .nav-arrow-chevron {
   width: 48px;
   height: 52px;

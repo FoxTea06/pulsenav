@@ -472,7 +472,11 @@
       zoom: 15,
       maxZoom: 19,
       zoomControl: false,
-      attributionControl: true
+      attributionControl: true,
+      rotate: true,
+      touchRotate: false,
+      shiftKeyRotate: false,
+      dragRotate: false
     });
 
     attachMapTileLayer();
@@ -492,9 +496,9 @@
             </div>
           </div>
 
-          <!-- 3D Navigation Mode: Waze-Style Cyan Vehicle Navigation Arrow -->
+          <!-- 3D Navigation Mode: Waze-Style Cyan Vehicle Navigation Arrow (Locked UP in Ride Mode) -->
           <div class="nav-vehicle-arrow-wrapper">
-            <div id="navVehicleChevron" class="nav-arrow-chevron" style="transform: rotate(${state.userHeading}deg)">
+            <div id="navVehicleChevron" class="nav-arrow-chevron" style="transform: rotate(0deg)">
               <svg viewBox="0 0 44 48" class="w-12 h-14">
                 <defs>
                   <linearGradient id="wazeArrowLeft" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -969,7 +973,14 @@
           const cone = document.getElementById('gpsHeadingCone');
           if (cone) cone.style.transform = `rotate(${Math.round(interpBearing)}deg)`;
           const navArrow = document.getElementById('navVehicleChevron');
-          if (navArrow) navArrow.style.transform = `rotate(${Math.round(interpBearing)}deg)`;
+          if (navArrow) {
+            if (state.isNavigating) {
+              // Locked pointing straight UP in Ride Mode (Course-Up navigation like Waze)
+              navArrow.style.transform = 'rotate(0deg)';
+            } else {
+              navArrow.style.transform = `rotate(${Math.round(interpBearing)}deg)`;
+            }
+          }
         }
 
         if (state.accuracyCircle && !state.isNavigating && state.hasLiveGpsLock) {
@@ -978,6 +989,10 @@
 
         if (state.followUser && state.map) {
           state.map.panTo([interpLat, interpLng], { animate: false });
+          // In Ride Mode: rotate map smoothly beneath vehicle so road ahead faces UP
+          if (state.isNavigating && typeof state.map.setBearing === 'function') {
+            state.map.setBearing(-interpBearing);
+          }
         }
 
         if (progress < 1) {
@@ -3583,7 +3598,7 @@
         state.userHeading = initialBearing;
         const navArrow = document.getElementById('navVehicleChevron');
         if (navArrow) {
-          navArrow.style.transform = `rotate(${initialBearing}deg)`;
+          navArrow.style.transform = 'rotate(0deg)';
         }
       }
     }
@@ -3606,6 +3621,9 @@
 
     setFollowMode(true);
     state.map.setView([state.userPos.lat, state.userPos.lng], 17.5, { animate: true });
+    if (typeof state.map.setBearing === 'function') {
+      state.map.setBearing(-state.userHeading);
+    }
 
     onLiveNavigationPositionUpdate(state.userPos.lat, state.userPos.lng);
 
@@ -3813,8 +3831,11 @@
       state.accuracyCircle.addTo(state.map);
     }
 
-    // Exit 3D Waze Navigation Perspective back to 2D flat mode
+    // Exit 3D Waze Navigation Perspective back to 2D flat mode & reset map bearing to North-Up
     document.body.classList.remove('nav-mode-active', 'nav-mode-3d');
+    if (state.map && typeof state.map.setBearing === 'function') {
+      state.map.setBearing(0);
+    }
     syncNavControlsPosition();
 
     document.getElementById('tbtHeader').classList.add('hidden');
@@ -5171,6 +5192,9 @@
       const route = state.routes[state.selectedRouteIdx];
       if (route && route.coords.length) {
         setFollowMode(false);
+        if (state.map && typeof state.map.setBearing === 'function') {
+          state.map.setBearing(0);
+        }
         state.map.fitBounds(L.latLngBounds(route.coords), { padding: [70, 70], maxZoom: 16 });
       }
     });
@@ -5186,6 +5210,9 @@
         startLiveGpsTracking(true);
       } else {
         setFollowMode(true);
+        if (state.isNavigating && state.map && typeof state.map.setBearing === 'function') {
+          state.map.setBearing(-state.userHeading);
+        }
         state.map.flyTo([state.userPos.lat, state.userPos.lng], state.isNavigating ? 17 : 16, {
           animate: true,
           duration: 0.6
