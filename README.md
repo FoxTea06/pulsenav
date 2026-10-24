@@ -2,8 +2,6 @@
 
 A high-performance, responsive navigation web application inspired by **Waze** and **Google Maps**. Built with pure vanilla HTML5, CSS3, and JavaScript, leveraging **Leaflet**, **OpenStreetMap**, **OSRM**, and **Supabase Realtime**.
 
-![PulseNav Screenshot](https://raw.githubusercontent.com/FoxTea06/pulsenav/main/preview.png)
-
 ---
 
 ## ✨ Features
