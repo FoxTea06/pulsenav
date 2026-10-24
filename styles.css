@@ -82,6 +82,11 @@ body.theme-day .day-bg-card {
   border-color: rgba(15, 23, 42, 0.1) !important;
 }
 
+body.theme-day .border-slate-800\/70,
+body.theme-day .border-slate-800\/80 {
+  border-color: rgba(15, 23, 42, 0.08) !important;
+}
+
 /* ========================================================
    NAVIGATION MODE DYNAMICS: AVOID BANNER OVERLAP & CLEAN TILES
    ======================================================== */

@@ -311,24 +311,11 @@
       <span id="currentSpeedValue" class="text-2xl sm:text-3xl font-black text-white day-text-dark leading-none">0</span>
       <span class="text-[10px] font-bold uppercase tracking-wider text-sky-400 mt-0.5">km/h</span>
     </div>
-
-    <!-- Creator Credit Badge (Bottom Left) -->
-    <div
-      id="creatorCreditBadge"
-      class="glass-panel day-bg-card pointer-events-auto px-2.5 py-1 rounded-xl shadow-lg border border-sky-400/30 bg-slate-900/85 flex items-center gap-1.5 text-[11px] text-slate-300 day-text-dark select-none transition-transform hover:scale-105"
-      title="All credit to Frizy"
-    >
-      <span class="relative flex h-2 w-2 shrink-0">
-        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
-        <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-400"></span>
-      </span>
-      <span class="font-semibold text-slate-300 day-text-dark tracking-wide whitespace-nowrap">Credit: <strong class="text-sky-400 font-extrabold">Frizy</strong></span>
-    </div>
   </div>
 
   <!-- BOTTOM-RIGHT RECENTER & REPORT FAB STACK (Waze Style) -->
-  <div class="fixed right-3 sm:right-4 bottom-28 sm:bottom-32 z-[960] flex flex-col items-center gap-2.5">
-    <!-- Waze Style Recenter Button (Directly above Report button) -->
+  <div class="fixed right-3 sm:right-4 bottom-28 sm:bottom-32 z-[960] flex flex-col items-end gap-2.5">
+    <!-- Waze Style Recenter Button (Directly above Report button, aligned to the right) -->
     <button
       id="recenterBtn"
       title="Show Your Location"
@@ -428,6 +415,22 @@
             <button data-poi-query="supermarket" class="poi-chip btn-tactile shrink-0 px-2.5 py-1 rounded-lg bg-slate-800/75 hover:bg-slate-700/90 day-bg-card text-xs font-medium text-slate-300 day-text-dark border border-slate-700/50 flex items-center gap-1">
               <span>🛒</span> Grocery
             </button>
+          </div>
+
+          <!-- Down of Searchbar: Creator Credit (Frizy) -->
+          <div class="flex items-center justify-between pt-1.5 pb-0.5 px-1 border-t border-slate-800/70 mt-1.5">
+            <div
+              id="creatorCreditBadge"
+              class="flex items-center gap-1.5 text-[11px] text-slate-300 day-text-dark font-medium select-none"
+              title="All credit to Frizy"
+            >
+              <span class="relative flex h-2 w-2 shrink-0">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2 w-2 bg-sky-400"></span>
+              </span>
+              <span>Credit: <strong class="text-sky-400 font-extrabold tracking-wide">Frizy</strong></span>
+            </div>
+            <span class="text-[10px] font-semibold text-slate-500 day-text-muted tracking-wider">PulseNav</span>
           </div>
         </div>
       </div>
@@ -583,6 +586,15 @@
               Exit
             </button>
           </div>
+        </div>
+
+        <!-- Navigation HUD Bottom Credit (Frizy) -->
+        <div class="flex items-center justify-between pt-1.5 border-t border-slate-800/80 mt-2 px-0.5">
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+            <span>Credit: <strong class="text-sky-400 font-bold">Frizy</strong></span>
+          </div>
+          <span class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">PulseNav Live</span>
         </div>
       </div>
 
