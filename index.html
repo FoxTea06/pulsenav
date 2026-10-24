@@ -1,0 +1,908 @@
+
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>PulseNav — Live GPS Navigation & Community Traffic</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+  <!-- Leaflet CSS -->
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+          colors: {
+            waze: {
+              blue: '#33ccff',
+              purple: '#6366f1',
+              amber: '#f59e0b',
+              danger: '#ef4444',
+              emerald: '#10b981'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Custom Styles -->
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="bg-slate-950 text-slate-100 antialiased overflow-hidden select-none">
+
+  <!-- MAIN MAP CONTAINER (Full-bleed edge-to-edge Waze navigation) -->
+  <div id="map" class="relative w-full h-full"></div>
+
+  <!-- TAP-ON-MAP PLACEMENT BANNER (Hidden by default) -->
+  <div id="mapPlacementBanner" class="hidden fixed top-4 left-1/2 -translate-x-1/2 z-[1200] w-[92%] max-w-md">
+    <div class="glass-panel rounded-2xl px-4 py-3 shadow-2xl border border-amber-400/50 flex items-center justify-between gap-3 bg-slate-900/95">
+      <div class="flex items-center gap-3">
+        <span id="placementBannerIcon" class="text-2xl">🚧</span>
+        <div>
+          <p class="text-xs font-bold uppercase tracking-wider text-amber-400">Pin Placement Mode</p>
+          <p id="placementBannerText" class="text-sm font-medium text-white">Tap anywhere on the map to drop report</p>
+        </div>
+      </div>
+      <button id="cancelPlacementBtn" class="btn-tactile px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 border border-slate-600">
+        Cancel
+      </button>
+    </div>
+  </div>
+
+  <!-- TOP OVERLAY: TURN-BY-TURN GUIDANCE, ACTIVE CONVOY BAR, LIVE TICKER -->
+  <header id="topAppHeader" class="fixed top-0 left-0 right-0 z-[1000] p-3 sm:p-4 pointer-events-none flex flex-col items-center gap-2">
+
+    <!-- 1. TURN-BY-TURN NAVIGATION HEADER (Active during navigation) -->
+    <div id="tbtHeader" class="hidden w-full max-w-xl pointer-events-auto">
+      <div class="rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-2xl border border-emerald-400/40 overflow-hidden">
+        <div class="p-3.5 sm:p-4 flex items-center gap-3.5">
+          <!-- Maneuver Icon Box -->
+          <div id="tbtIconBox" class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-black/25 border border-white/20 flex items-center justify-center shrink-0 text-3xl font-black">
+            ⬆️
+          </div>
+
+          <!-- Distance & Street Info -->
+          <div class="flex-1 min-w-0">
+            <div class="flex items-baseline gap-2">
+              <span id="tbtDistance" class="text-2xl sm:text-3xl font-black tracking-tight">0 m</span>
+              <span id="tbtAction" class="text-xs sm:text-sm font-bold uppercase tracking-wider bg-black/25 px-2 py-0.5 rounded-md text-emerald-100">Continue</span>
+            </div>
+            <p id="tbtStreet" class="text-base sm:text-lg font-bold truncate mt-0.5">Follow route</p>
+          </div>
+
+          <!-- Voice synthesis quick button (Repeat spoken maneuver) -->
+          <button id="speakCurrentStepBtn" title="Repeat spoken direction" class="btn-tactile w-10 h-10 rounded-xl bg-black/20 hover:bg-black/30 flex items-center justify-center border border-white/15 text-lg">
+            🗣️
+          </button>
+        </div>
+
+        <!-- Next-Next ("Then...") Sub-bar -->
+        <div class="bg-black/30 px-4 py-2 flex items-center justify-between text-xs sm:text-sm font-medium text-emerald-100">
+          <div class="flex items-center gap-2 truncate">
+            <span class="font-bold uppercase tracking-wider text-emerald-300">Then</span>
+            <span id="tbtNextStepText" class="truncate">Continue along route</span>
+          </div>
+          <span id="tbtStepCounter" class="text-[11px] font-semibold opacity-80 shrink-0 ml-2">Step 1/1</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2. ACTIVE CONVOY LIVE BAR (Visible when in a Convoy session) -->
+    <div id="activeConvoyPill" class="hidden w-full max-w-xl pointer-events-auto">
+      <div class="glass-panel rounded-xl px-3.5 py-2 shadow-xl border border-indigo-400/50 bg-indigo-950/80 flex flex-col gap-1.5">
+        <div class="flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2 min-w-0">
+            <span id="convoyRoleBadge" class="px-2 py-0.5 rounded-md bg-indigo-500 text-white text-[10px] font-extrabold uppercase tracking-wider shrink-0">
+              👑 Leader
+            </span>
+            <span class="text-xs font-extrabold text-indigo-200 tracking-wide">
+              CODE: <strong id="convoyActiveCodeText" class="text-white font-mono">------</strong>
+            </span>
+            <span id="convoySyncModeTag" class="text-[10px] text-emerald-300 font-semibold truncate">• Supabase Live</span>
+          </div>
+          <div class="flex items-center gap-1.5 shrink-0">
+            <button id="copyConvoyLinkBtn" title="Copy Invite Link" class="btn-tactile px-2 py-1 rounded-lg bg-indigo-500/30 hover:bg-indigo-500/50 border border-indigo-400/40 text-indigo-100 text-xs font-bold">
+              🔗 Invite
+            </button>
+            <button id="openConvoyRosterBtn" class="btn-tactile px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-700 text-sky-300 text-xs font-bold border border-slate-600">
+              👥 <span id="convoyPillCount">1</span>
+            </button>
+          </div>
+        </div>
+        <!-- Quick 1-Tap Convoy Broadcast Alerts -->
+        <div class="flex items-center gap-1.5 overflow-x-auto custom-scroll pt-0.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-indigo-300 shrink-0 mr-0.5">Ping Convoy:</span>
+          <button data-convoy-ping="Pulling Over" data-ping-icon="🛑" class="convoy-ping-btn btn-tactile shrink-0 px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 border border-slate-700">
+            🛑 Pull Over
+          </button>
+          <button data-convoy-ping="Need Fuel / Rest Stop" data-ping-icon="⛽" class="convoy-ping-btn btn-tactile shrink-0 px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 border border-slate-700">
+            ⛽ Fuel Stop
+          </button>
+          <button data-convoy-ping="Wait Up / Slow Down" data-ping-icon="⏳" class="convoy-ping-btn btn-tactile shrink-0 px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 border border-slate-700">
+            ⏳ Wait Up
+          </button>
+          <button data-convoy-ping="Watch Hazard Ahead!" data-ping-icon="⚠️" class="convoy-ping-btn btn-tactile shrink-0 px-2 py-0.5 rounded-md bg-slate-800/90 hover:bg-slate-700 text-[11px] font-semibold text-slate-200 border border-slate-700">
+            ⚠️ Hazard
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </header>
+
+  <!-- TOP-LEFT EXPANDABLE LIVE ROAD ALERTS TICKER -->
+  <aside id="topLeftControls" class="fixed top-3 sm:top-4 left-3 sm:left-4 z-[1050] pointer-events-auto max-w-[calc(100vw-6rem)] sm:max-w-xl transition-all duration-300">
+    <div
+      id="liveTickerContainer"
+      class="glass-panel rounded-2xl shadow-xl border border-slate-700/70 transition-all duration-300 flex items-center overflow-hidden"
+    >
+      <!-- Collapsed Trigger / Road Status Button (Visible at all times on the top left) -->
+      <button
+        id="tickerToggleBtn"
+        title="Road Hazard Alerts & Status (Tap to Expand)"
+        class="btn-tactile w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center text-lg shrink-0 relative day-text-dark"
+      >
+        <span id="tickerIcon">✅</span>
+        <!-- Ping dot badge when an active hazard is reported nearby -->
+        <span id="tickerHazardBadge" class="hidden absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+        </span>
+      </button>
+
+      <!-- Expandable Alert Details Bar (Expands smoothly to the right like in the image) -->
+      <div
+        id="tickerExpandedContent"
+        class="hidden flex-1 min-w-0 items-center justify-between gap-2.5 pl-1 pr-3 py-2"
+      >
+        <!-- Clickable Area to jump to hazard on map -->
+        <div class="flex items-center gap-2 min-w-0 flex-1 cursor-pointer" id="tickerClickArea">
+          <div class="truncate text-xs sm:text-sm">
+            <span id="tickerTitle" class="font-bold text-emerald-400">ALL CLEAR:</span>
+            <span id="tickerMessage" class="text-slate-200 day-text-dark font-medium ml-1">No active road hazards reported nearby</span>
+          </div>
+        </div>
+
+        <!-- Action Buttons: Upvote & Feed Drawer Link -->
+        <div class="flex items-center gap-1.5 shrink-0">
+          <button
+            id="tickerUpvoteBtn"
+            title="Confirm Still There"
+            class="hidden btn-tactile px-2 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-xs font-bold flex items-center gap-1"
+          >
+            👍 <span id="tickerUpvoteCount">1</span>
+          </button>
+          <button
+            id="tickerOpenDrawerBtn"
+            class="btn-tactile text-xs font-semibold text-sky-400 hover:text-sky-300 px-1.5 py-1 whitespace-nowrap"
+          >
+            Feed ▸
+          </button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- VOICE / HAZARD ALERT POPUP TOAST (Appears when approaching hazard on route) -->
+  <div id="hazardApproachToast" class="hidden fixed top-24 sm:top-28 left-1/2 -translate-x-1/2 z-[1100] w-[90%] max-w-sm pointer-events-auto">
+    <div class="rounded-2xl bg-slate-900/95 border-2 border-amber-400 shadow-2xl p-3.5 flex items-center gap-3 animate-bounce">
+      <div id="toastHazardIcon" class="w-12 h-12 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-2xl shrink-0">
+        ⚠️
+      </div>
+      <div class="flex-1 min-w-0">
+        <p class="text-[11px] font-extrabold uppercase tracking-wider text-amber-400">Hazard Ahead</p>
+        <p id="toastHazardText" class="text-sm font-bold text-white truncate">Hazard reported ahead</p>
+        <div class="flex items-center gap-2 mt-1.5">
+          <button id="toastConfirmBtn" class="btn-tactile px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold">
+            👍 Still There
+          </button>
+          <button id="toastDismissBtn" class="btn-tactile px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold">
+            Not There
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TOP-RIGHT MAP CONTROLS (Waze Style Audio, Theme, Zoom) -->
+  <aside id="topRightControls" class="fixed top-3 sm:top-4 right-3 sm:right-4 z-[1050] flex flex-col items-end gap-2 pointer-events-auto transition-all duration-300">
+    <!-- Unified Single Voice Guidance Speaker & Slip Volume Slider Pill -->
+    <div
+      id="voiceControlContainer"
+      class="glass-panel rounded-2xl shadow-xl flex items-center border border-slate-700/60 transition-all duration-200 overflow-hidden"
+    >
+      <!-- Expandable Slip Volume Slider Track (Revealed when speaker button is pressed) -->
+      <div
+        id="voiceSliderTrack"
+        class="hidden items-center gap-2 pl-3 pr-1 py-1.5 transition-all"
+      >
+        <input
+          id="voiceVolumeSlider"
+          type="range"
+          min="0"
+          max="100"
+          value="100"
+          step="1"
+          aria-label="Voice Guidance Volume"
+          class="w-24 sm:w-28 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-emerald-400 focus:outline-none"
+        />
+        <span id="voiceVolumeLabel" class="text-[11px] font-mono font-bold text-emerald-400 w-9 text-right shrink-0">100%</span>
+      </div>
+
+      <!-- Single Voice Guidance Speaker Button -->
+      <button
+        id="voiceToggleBtn"
+        title="Voice Guidance Volume & Mute"
+        class="btn-tactile w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center text-slate-200 day-text-dark hover:text-emerald-400 text-lg shrink-0"
+      >
+        <span id="voiceIcon">🔊</span>
+      </button>
+    </div>
+
+    <!-- Day / Night Map Theme Switcher -->
+    <button
+      id="themeToggleBtn"
+      title="Toggle Night / Day Map Theme"
+      class="btn-tactile glass-panel w-10 h-10 sm:w-11 sm:h-11 rounded-2xl shadow-xl flex items-center justify-center text-amber-300 hover:text-amber-200 text-lg border border-slate-700/60"
+    >
+      <span id="themeIcon">🌙</span>
+    </button>
+
+    <!-- Zoom In / Out Group -->
+    <div class="glass-panel rounded-2xl shadow-xl overflow-hidden flex flex-col divide-y divide-slate-700/60 border border-slate-700/60">
+      <button id="zoomInBtn" title="Zoom In" class="btn-tactile w-10 h-9 sm:w-11 sm:h-9 flex items-center justify-center text-slate-200 day-text-dark hover:bg-slate-800/50 text-base font-bold">
+        +
+      </button>
+      <button id="zoomOutBtn" title="Zoom Out" class="btn-tactile w-10 h-9 sm:w-11 sm:h-9 flex items-center justify-center text-slate-200 day-text-dark hover:bg-slate-800/50 text-base font-bold">
+        −
+      </button>
+    </div>
+  </aside>
+
+  <!-- BOTTOM-LEFT LIVE CONVOY BUTTON & SPEEDOMETER STACK (Waze Style) -->
+  <div class="fixed left-3 sm:left-4 bottom-28 sm:bottom-32 z-[950] flex flex-col items-center gap-2.5">
+    <!-- Live Convoy Button (Above Speedometer) -->
+    <button
+      id="openConvoyModalBtn"
+      title="Start or Join a Live Convoy"
+      class="btn-tactile glass-panel pointer-events-auto relative w-16 sm:w-20 py-2.5 rounded-2xl shadow-2xl flex flex-col items-center justify-center gap-0.5 bg-indigo-950/80 hover:bg-indigo-900/90 day-bg-card border border-indigo-400/60 text-indigo-200 day-text-dark transition"
+    >
+      <span id="convoyHeaderDot" class="hidden absolute top-1.5 right-1.5 flex h-2.5 w-2.5">
+        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+      </span>
+      <span class="text-xl sm:text-2xl leading-none">🚘</span>
+      <div class="flex items-center gap-1 mt-0.5">
+        <span class="text-[10px] font-extrabold uppercase tracking-wider text-indigo-300 day-text-dark">Convoy</span>
+        <span id="convoyMemberCountBadge" class="hidden px-1.5 py-0.2 text-[10px] font-black rounded-full bg-indigo-500 text-white leading-tight">1</span>
+      </div>
+    </button>
+
+    <!-- Current Live GPS Speedometer Circle (Waze Speedometer) -->
+    <div
+      id="speedometerContainer"
+      class="glass-panel pointer-events-none w-16 h-16 sm:w-20 sm:h-20 rounded-2xl shadow-2xl flex flex-col items-center justify-center border border-slate-700/80 relative"
+    >
+      <!-- Speed limit badge (Visible when on a road with known speed limit) -->
+      <div id="speedLimitBadge" class="hidden speed-limit-sign">
+        <span id="speedLimitValue">60</span>
+      </div>
+      <span id="currentSpeedValue" class="text-2xl sm:text-3xl font-black text-white day-text-dark leading-none">0</span>
+      <span class="text-[10px] font-bold uppercase tracking-wider text-sky-400 mt-0.5">km/h</span>
+    </div>
+  </div>
+
+  <!-- BOTTOM-RIGHT RECENTER & REPORT FAB STACK (Waze Style) -->
+  <div class="fixed right-3 sm:right-4 bottom-28 sm:bottom-32 z-[960] flex flex-col items-center gap-2.5">
+    <!-- Waze Style Recenter Button (Directly above Report button) -->
+    <button
+      id="recenterBtn"
+      title="Show Your Location"
+      class="btn-tactile glass-panel pointer-events-auto w-12 h-12 sm:w-14 sm:h-14 rounded-full shadow-2xl flex items-center justify-center text-slate-200 hover:text-sky-300 border border-slate-700/80 relative transition-all duration-200"
+    >
+      <!-- Crosshair SVG (dynamically styled based on GPS state: unknown, uncentered, centered) -->
+      <svg id="locateCrosshairSvg" class="w-6 h-6 sm:w-7 sm:h-7 transition-transform duration-300" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+        <circle id="locateCenterDot" cx="12" cy="12" r="3.5" fill="none" />
+        <path stroke-linecap="round" d="M12 2v3m0 14v3M2 12h3m14 0h3" />
+        <circle cx="12" cy="12" r="8" />
+      </svg>
+      <span id="gpsLockDot" class="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping"></span>
+    </button>
+
+    <!-- Waze Signature Orange Community Hazard Report Button -->
+    <button
+      id="openReportModalBtn"
+      class="btn-tactile group pointer-events-auto flex items-center gap-2 px-4 py-3 sm:px-5 sm:py-3.5 rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 hover:from-amber-400 hover:to-rose-400 text-white font-extrabold shadow-2xl shadow-orange-500/40 border-2 border-white/80"
+    >
+      <span class="text-xl sm:text-2xl group-hover:rotate-12 transition-transform">⚠️</span>
+      <span class="text-sm sm:text-base tracking-tight">Report</span>
+    </button>
+  </div>
+
+  <!-- BOTTOM SHEET: WAZE "WHERE TO?" SEARCH / GPS STATUS / ROUTE PREVIEW / NAVIGATION HUD -->
+  <section class="fixed bottom-0 left-0 right-0 z-[1000] p-3 sm:p-4 pointer-events-none flex justify-center">
+    <div class="w-full max-w-xl pointer-events-auto flex flex-col gap-2">
+
+      <!-- STATE A: WAZE "WHERE TO?" SEARCH BAR & POI CHIPS (Idle / Map browsing mode) -->
+      <div id="searchHeader" class="relative w-full pointer-events-auto transition-all duration-300">
+        <!-- Autocomplete Dropdown Results (Opens upward above search bar) -->
+        <div id="searchDropdown" class="hidden absolute bottom-full mb-2 left-0 right-0 glass-panel rounded-2xl shadow-2xl overflow-hidden max-h-72 overflow-y-auto custom-scroll divide-y divide-slate-800/70 z-50">
+          <!-- Populated dynamically via live Nominatim geocoding -->
+        </div>
+
+        <div class="glass-panel rounded-2xl shadow-2xl p-2 sm:p-2.5">
+          <div class="flex items-center gap-2">
+            <!-- Brand / App Status -->
+            <div class="flex items-center gap-1.5 pl-2 pr-1">
+              <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shadow-md shadow-sky-500/30">
+                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+                </svg>
+              </div>
+            </div>
+
+            <!-- Search Input ("Where to?") -->
+            <div class="relative flex-1">
+              <input
+                id="destinationInput"
+                type="text"
+                autocomplete="off"
+                placeholder="Where to? Search address, place..."
+                class="w-full bg-slate-800/80 day-bg-card text-slate-100 day-text-dark placeholder-slate-400 text-sm sm:text-base font-medium rounded-xl pl-3.5 pr-9 py-2.5 focus:outline-none focus:ring-2 focus:ring-sky-400/70 border border-slate-700/60"
+              />
+              <button
+                id="clearSearchBtn"
+                title="Clear search"
+                class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-700/80 hover:bg-slate-600 text-slate-300 flex items-center justify-center text-xs"
+              >
+                ✕
+              </button>
+            </div>
+
+            <!-- Live Feed Drawer Toggle Button (Alerts) -->
+            <button
+              id="toggleFeedBtn"
+              title="Open Live Community Alerts"
+              class="btn-tactile relative flex items-center gap-1.5 px-3 py-2.5 rounded-xl bg-slate-800/90 hover:bg-slate-700/90 day-bg-card border border-slate-700/70 text-slate-100 day-text-dark text-xs sm:text-sm font-semibold shrink-0"
+            >
+              <span class="relative flex h-2.5 w-2.5">
+                <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+              </span>
+              <span class="hidden sm:inline">Alerts</span>
+              <span id="activeReportCountBadge" class="px-1.5 py-0.5 text-[11px] font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30">0</span>
+            </button>
+          </div>
+
+          <!-- Live Nearby POI Category Search Chips -->
+          <div class="flex items-center gap-1.5 overflow-x-auto custom-scroll pt-2 pb-0.5 px-1">
+            <button data-poi-query="gas station" class="poi-chip btn-tactile shrink-0 px-2.5 py-1 rounded-lg bg-slate-800/75 hover:bg-slate-700/90 day-bg-card text-xs font-medium text-slate-300 day-text-dark border border-slate-700/50 flex items-center gap-1">
+              <span>⛽</span> Gas
+            </button>
+            <button data-poi-query="parking" class="poi-chip btn-tactile shrink-0 px-2.5 py-1 rounded-lg bg-slate-800/75 hover:bg-slate-700/90 day-bg-card text-xs font-medium text-slate-300 day-text-dark border border-slate-700/50 flex items-center gap-1">
+              <span>🅿️</span> Parking
+            </button>
+            <button data-poi-query="coffee" class="poi-chip btn-tactile shrink-0 px-2.5 py-1 rounded-lg bg-slate-800/75 hover:bg-slate-700/90 day-bg-card text-xs font-medium text-slate-300 day-text-dark border border-slate-700/50 flex items-center gap-1">
+              <span>☕</span> Coffee
+            </button>
+            <button data-poi-query="restaurant" class="poi-chip btn-tactile shrink-0 px-2.5 py-1 rounded-lg bg-slate-800/75 hover:bg-slate-700/90 day-bg-card text-xs font-medium text-slate-300 day-text-dark border border-slate-700/50 flex items-center gap-1">
+              <span>🍴</span> Food
+            </button>
+            <button data-poi-query="hospital" class="poi-chip btn-tactile shrink-0 px-2.5 py-1 rounded-lg bg-slate-800/75 hover:bg-slate-700/90 day-bg-card text-xs font-medium text-slate-300 day-text-dark border border-slate-700/50 flex items-center gap-1">
+              <span>🏥</span> Hospital
+            </button>
+            <button data-poi-query="supermarket" class="poi-chip btn-tactile shrink-0 px-2.5 py-1 rounded-lg bg-slate-800/75 hover:bg-slate-700/90 day-bg-card text-xs font-medium text-slate-300 day-text-dark border border-slate-700/50 flex items-center gap-1">
+              <span>🛒</span> Grocery
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- STATE B: LOCATION DETECTION PROMPT (Shown when location is not detected or when Locate button is tapped) -->
+      <div id="idleBottomBar" class="glass-panel rounded-2xl px-4 py-3 shadow-2xl flex items-center justify-between gap-3 transition-all duration-300">
+        <div class="flex items-center gap-3 min-w-0">
+          <div id="gpsBarIconBox" class="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-xl shrink-0">
+            📍
+          </div>
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span id="gpsStatusBadge" class="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+              <p id="gpsStatusTitle" class="text-xs font-bold uppercase tracking-wider text-amber-400">Detecting Your Location...</p>
+            </div>
+            <p id="currentLocationLabel" class="text-sm font-semibold text-slate-200 day-text-dark truncate">Allow browser location access or tap Locate Me</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button
+            id="locateMeNowBtn"
+            class="btn-tactile shrink-0 px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-extrabold text-xs sm:text-sm shadow-lg shadow-sky-500/25"
+          >
+            Locate Me
+          </button>
+          <button
+            id="dismissGpsBarBtn"
+            title="Dismiss"
+            class="hidden btn-tactile w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-xs"
+          >
+            ✕
+          </button>
+        </div>
+      </div>
+
+      <!-- STATE B: ROUTE PREVIEW & START NAVIGATION CARD -->
+      <div id="routePreviewCard" class="hidden glass-panel rounded-3xl p-4 shadow-2xl border border-slate-700/80">
+        <div class="flex items-start justify-between gap-3 mb-3">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span id="routeIncidentCountPill" class="px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-400/30 text-[11px] font-bold">0 Reports on route</span>
+            </div>
+            <h2 id="previewDestName" class="text-lg sm:text-xl font-extrabold text-white day-text-dark truncate mt-1">Destination</h2>
+            <p id="previewDestAddress" class="text-xs text-slate-400 day-text-muted truncate">Calculating route...</p>
+          </div>
+          <button id="cancelRouteBtn" class="btn-tactile w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center text-sm shrink-0">
+            ✕
+          </button>
+        </div>
+
+        <!-- Route Alternative Selector Tabs -->
+        <div id="routeAlternativesContainer" class="grid grid-cols-2 gap-2 mb-3.5">
+          <button data-route-idx="0" class="route-alt-btn btn-tactile text-left p-2.5 rounded-xl bg-sky-500/20 border-2 border-sky-400 transition">
+            <div class="flex items-center justify-between">
+              <span id="alt0Title" class="text-xs font-bold text-sky-300 uppercase">Primary Route</span>
+              <span id="alt0Tag" class="text-[11px] font-semibold text-emerald-400">Fastest</span>
+            </div>
+            <div class="flex items-baseline gap-2 mt-0.5">
+              <span id="alt0Time" class="text-base sm:text-lg font-black text-white day-text-dark">-- min</span>
+              <span id="alt0Dist" class="text-xs text-slate-300 day-text-muted font-medium">-- km</span>
+            </div>
+          </button>
+
+          <button id="alt1Btn" data-route-idx="1" class="route-alt-btn btn-tactile text-left p-2.5 rounded-xl bg-slate-800/70 day-bg-card border border-slate-700/70 hover:border-slate-500 transition">
+            <div class="flex items-center justify-between">
+              <span id="alt1Title" class="text-xs font-bold text-slate-300 day-text-dark uppercase">Alternative</span>
+              <span id="alt1Tag" class="text-[11px] font-semibold text-amber-400">Option 2</span>
+            </div>
+            <div class="flex items-baseline gap-2 mt-0.5">
+              <span id="alt1Time" class="text-base sm:text-lg font-black text-white day-text-dark">-- min</span>
+              <span id="alt1Dist" class="text-xs text-slate-300 day-text-muted font-medium">-- km</span>
+            </div>
+          </button>
+        </div>
+
+        <!-- Metrics & Start Action -->
+        <div class="flex items-center justify-between gap-3 pt-1 border-t border-slate-800/80">
+          <div class="flex items-center gap-4">
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">ETA</p>
+              <p id="previewEta" class="text-base sm:text-lg font-black text-emerald-400">--:--</p>
+            </div>
+            <div>
+              <p class="text-[10px] font-bold uppercase tracking-wider text-slate-400">Distance</p>
+              <p id="previewDistance" class="text-base sm:text-lg font-bold text-white day-text-dark">-- km</p>
+            </div>
+          </div>
+
+          <button
+            id="startNavBtn"
+            class="btn-tactile flex-1 max-w-[230px] py-3 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm sm:text-base shadow-xl shadow-emerald-500/30 flex items-center justify-center gap-2"
+          >
+            <span>▶</span>
+            <span>Start Navigation</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- STATE C: ACTIVE LIVE NAVIGATION BOTTOM HUD -->
+      <div id="activeNavHud" class="hidden glass-panel rounded-3xl p-3.5 sm:p-4 shadow-2xl border border-emerald-500/40">
+        <!-- Route Progress Bar -->
+        <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mb-3">
+          <div id="navProgressBar" class="h-full bg-gradient-to-r from-emerald-400 to-sky-400 transition-all duration-300" style="width: 0%"></div>
+        </div>
+
+        <div class="flex items-center justify-between gap-2">
+          <!-- Remaining Time / Distance / ETA -->
+          <div class="flex items-center gap-4 sm:gap-6">
+            <div>
+              <div class="flex items-baseline gap-1">
+                <span id="hudRemainingMin" class="text-2xl sm:text-3xl font-black text-emerald-400">--</span>
+                <span class="text-xs sm:text-sm font-bold text-emerald-300">min</span>
+              </div>
+              <p class="text-[11px] font-medium text-slate-400"></p>
+            </div>
+
+            <div class="h-8 w-px bg-slate-700/80"></div>
+
+            <div>
+              <p id="hudRemainingDist" class="text-lg sm:text-xl font-extrabold text-white day-text-dark">-- km</p>
+              <p class="text-[11px] font-medium text-slate-400">Distance</p>
+            </div>
+
+            <div class="h-8 w-px bg-slate-700/80 hidden sm:block"></div>
+
+            <div class="hidden sm:block">
+              <p id="hudEta" class="text-lg sm:text-xl font-extrabold text-sky-400">--:--</p>
+              <p class="text-[11px] font-medium text-slate-400">Arrival ETA</p>
+            </div>
+          </div>
+
+          <!-- Live Navigation Controls -->
+          <div class="flex items-center gap-1.5 sm:gap-2">
+            <button
+              id="recalcRouteBtn"
+              title="Recalculate Route from Current GPS"
+              class="btn-tactile px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-400 font-bold text-xs border border-slate-700"
+            >
+              ↻ Reroute
+            </button>
+            <button
+              id="overviewRouteBtn"
+              title="View Full Route Overview"
+              class="btn-tactile px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs border border-slate-700"
+            >
+              🗺️
+            </button>
+            <button
+              id="stopNavBtn"
+              title="Exit Navigation"
+              class="btn-tactile px-3.5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-rose-600/30"
+            >
+              Exit
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- COLLAPSIBLE LIVE ALERT FEED DRAWER -->
+  <aside
+    id="liveFeedDrawer"
+    class="fixed top-0 right-0 bottom-0 z-[1150] w-full max-w-md translate-x-full drawer-transition pointer-events-auto flex flex-col glass-panel shadow-2xl border-l border-slate-700/80"
+  >
+    <!-- Drawer Header -->
+    <div class="p-4 border-b border-slate-800/80 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <span class="relative flex h-3 w-3">
+          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+          <span class="relative inline-flex rounded-full h-3 w-3 bg-amber-500"></span>
+        </span>
+        <div>
+          <h3 class="text-base font-extrabold text-white day-text-dark">Live Community Feed</h3>
+          <p class="text-xs text-slate-400 day-text-muted">Active user-submitted reports sorted by distance</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2">
+        <button id="clearAllReportsBtn" title="Clear All Local Reports" class="btn-tactile px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-rose-500/20 hover:text-rose-300 text-[11px] font-semibold text-slate-300 border border-slate-700">
+          Clear All
+        </button>
+        <button id="closeFeedDrawerBtn" class="btn-tactile w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center">
+          ✕
+        </button>
+      </div>
+    </div>
+
+    <!-- Category Filter Pills -->
+    <div class="px-4 py-2.5 border-b border-slate-800/80 flex items-center gap-1.5 overflow-x-auto custom-scroll">
+      <button data-filter="all" class="feed-filter-btn btn-tactile px-3 py-1 rounded-full bg-sky-500 text-slate-950 font-bold text-xs shrink-0">
+        All
+      </button>
+      <button data-filter="traffic" class="feed-filter-btn btn-tactile px-3 py-1 rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700 font-semibold text-xs shrink-0">
+        🚗 Traffic
+      </button>
+      <button data-filter="accident" class="feed-filter-btn btn-tactile px-3 py-1 rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700 font-semibold text-xs shrink-0">
+        ⚠️ Accident
+      </button>
+      <button data-filter="police" class="feed-filter-btn btn-tactile px-3 py-1 rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700 font-semibold text-xs shrink-0">
+        🚓 Police
+      </button>
+      <button data-filter="hazard" class="feed-filter-btn btn-tactile px-3 py-1 rounded-full bg-slate-800 text-slate-300 hover:bg-slate-700 font-semibold text-xs shrink-0">
+        🚧 Hazard
+      </button>
+    </div>
+
+    <!-- Feed Items List -->
+    <div id="feedListContainer" class="flex-1 overflow-y-auto custom-scroll p-4 space-y-3">
+      <!-- Populated dynamically via JS -->
+    </div>
+
+    <!-- Drawer Footer Action -->
+    <div class="p-4 border-t border-slate-800/80 bg-slate-900/60">
+      <button
+        id="drawerNewReportBtn"
+        class="btn-tactile w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-extrabold text-sm shadow-lg flex items-center justify-center gap-2"
+      >
+        <span>+</span> Report Incident Nearby
+      </button>
+    </div>
+  </aside>
+
+  <!-- COMMUNITY INCIDENT REPORTING MODAL -->
+  <div
+    id="reportModalBackdrop"
+    class="hidden fixed inset-0 z-[1300] bg-slate-950/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+  >
+    <div class="glass-panel w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-slate-700/80 max-h-[90vh] overflow-y-auto custom-scroll">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h3 class="text-lg sm:text-xl font-black text-white day-text-dark">What do you see?</h3>
+          <p class="text-xs text-slate-400 day-text-muted">Drop a live road report at your GPS position or on the map</p>
+        </div>
+        <button id="closeReportModalBtn" class="btn-tactile w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center">
+          ✕
+        </button>
+      </div>
+
+      <!-- 4 Main Category Cards -->
+      <div class="grid grid-cols-2 gap-3 mb-4">
+        <button
+          data-cat="traffic"
+          class="report-cat-card btn-tactile p-3.5 rounded-2xl bg-slate-800/90 border-2 border-amber-500 text-left flex flex-col gap-1.5"
+        >
+          <div class="w-11 h-11 rounded-xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-2xl">
+            🚗
+          </div>
+          <span class="text-sm font-extrabold text-white day-text-dark">Heavy Traffic</span>
+          <span class="text-[11px] text-slate-400">Slow, Moderate, Gridlock</span>
+        </button>
+
+        <button
+          data-cat="accident"
+          class="report-cat-card btn-tactile p-3.5 rounded-2xl bg-slate-800/90 border-2 border-transparent hover:border-slate-600 text-left flex flex-col gap-1.5"
+        >
+          <div class="w-11 h-11 rounded-xl bg-rose-500/20 border border-rose-400/40 flex items-center justify-center text-2xl">
+            ⚠️
+          </div>
+          <span class="text-sm font-extrabold text-white day-text-dark">Accident</span>
+          <span class="text-[11px] text-slate-400">Minor, Major, Opposite Lane</span>
+        </button>
+
+        <button
+          data-cat="police"
+          class="report-cat-card btn-tactile p-3.5 rounded-2xl bg-slate-800/90 border-2 border-transparent hover:border-slate-600 text-left flex flex-col gap-1.5"
+        >
+          <div class="w-11 h-11 rounded-xl bg-blue-500/20 border border-blue-400/40 flex items-center justify-center text-2xl">
+            🚓
+          </div>
+          <span class="text-sm font-extrabold text-white day-text-dark">Police / Speed Trap</span>
+          <span class="text-[11px] text-slate-400">Visible, Hidden, Camera</span>
+        </button>
+
+        <button
+          data-cat="hazard"
+          class="report-cat-card btn-tactile p-3.5 rounded-2xl bg-slate-800/90 border-2 border-transparent hover:border-slate-600 text-left flex flex-col gap-1.5"
+        >
+          <div class="w-11 h-11 rounded-xl bg-orange-500/20 border border-orange-400/40 flex items-center justify-center text-2xl">
+            🚧
+          </div>
+          <span class="text-sm font-extrabold text-white day-text-dark">Road Hazard</span>
+          <span class="text-[11px] text-slate-400">Pothole, Workzone, Debris</span>
+        </button>
+      </div>
+
+      <!-- Subtype / Severity Selector -->
+      <div class="mb-4">
+        <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">
+          Severity / Specific Detail
+        </label>
+        <div id="subtypePillsContainer" class="grid grid-cols-3 gap-2">
+          <!-- Populated dynamically via JS -->
+        </div>
+      </div>
+
+      <!-- Optional Note & Expiration Duration -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">
+        <div class="sm:col-span-2">
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+            Optional Road Note
+          </label>
+          <input
+            id="reportCustomNote"
+            type="text"
+            maxlength="70"
+            placeholder="e.g. Right lane blocked, backup near exit..."
+            class="w-full rounded-xl bg-slate-800/90 day-bg-card border border-slate-700 px-3 py-2 text-sm text-white day-text-dark placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
+          />
+        </div>
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-400 mb-1.5">
+            Auto-Clear Timer
+          </label>
+          <select
+            id="reportDurationSelect"
+            class="w-full rounded-xl bg-slate-800/90 day-bg-card border border-slate-700 px-3 py-2 text-sm font-semibold text-white day-text-dark focus:outline-none focus:ring-2 focus:ring-amber-400"
+          >
+            <option value="30">30 mins</option>
+            <option value="45" selected>45 mins</option>
+            <option value="60">60 mins</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Action Buttons: Drop at Current GPS OR Tap on Map -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+        <button
+          id="submitReportHereBtn"
+          class="btn-tactile py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-sm shadow-lg shadow-amber-500/25 flex items-center justify-center gap-2"
+        >
+          <span>📍</span> Drop at My GPS Location
+        </button>
+        <button
+          id="submitReportTapMapBtn"
+          class="btn-tactile py-3.5 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm border border-slate-600 flex items-center justify-center gap-2"
+        >
+          <span>🎯</span> Tap on Map to Place
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONVOY QUICK PING POPUP TOAST -->
+  <div id="convoyPingToast" class="hidden fixed top-52 left-1/2 -translate-x-1/2 z-[1250] w-[90%] max-w-sm pointer-events-auto">
+    <div class="rounded-2xl bg-indigo-950/95 border-2 border-indigo-400 shadow-2xl p-3.5 flex items-center gap-3">
+      <div id="convoyPingToastIcon" class="w-11 h-11 rounded-xl bg-indigo-500/30 border border-indigo-400/50 flex items-center justify-center text-2xl shrink-0">
+        🚘
+      </div>
+      <div class="flex-1 min-w-0">
+        <p id="convoyPingToastSender" class="text-[11px] font-extrabold uppercase tracking-wider text-indigo-300">Convoy Alert</p>
+        <p id="convoyPingToastText" class="text-sm font-bold text-white truncate">Pulling Over</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVE CONVOY HUB MODAL (Create / Join / Roster / Supabase Realtime Setup) -->
+  <div
+    id="convoyModalBackdrop"
+    class="hidden fixed inset-0 z-[1350] bg-slate-950/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+  >
+    <div class="glass-panel w-full max-w-lg rounded-t-3xl sm:rounded-3xl p-5 sm:p-6 shadow-2xl border border-indigo-500/40 max-h-[92vh] overflow-y-auto custom-scroll">
+      <!-- Modal Header -->
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2.5">
+          <div class="w-10 h-10 rounded-2xl bg-indigo-500/20 border border-indigo-400/40 flex items-center justify-center text-xl">
+            🚘
+          </div>
+          <div>
+            <h3 class="text-lg sm:text-xl font-black text-white day-text-dark">Live Convoy Navigator</h3>
+            <p id="convoyBackendStatusLabel" class="text-xs text-emerald-400 font-semibold">Share one route & live driver GPS markers</p>
+          </div>
+        </div>
+        <button id="closeConvoyModalBtn" class="btn-tactile w-9 h-9 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-300 flex items-center justify-center">
+          ✕
+        </button>
+      </div>
+
+      <!-- Driver Profile (Callsign & Auto-Assigned Marker Color) -->
+      <div class="p-3.5 rounded-2xl bg-slate-900/80 day-bg-card border border-slate-800 mb-4">
+        <div class="flex items-center justify-between mb-1.5">
+          <label for="convoyDriverNameInput" class="block text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            Your Driver Callsign
+          </label>
+          <span class="text-[10px] font-bold text-slate-400 flex items-center gap-1.5">
+            <span>Auto Marker Color:</span>
+            <span id="driverAutoColorBadge" class="inline-block w-3.5 h-3.5 rounded-full border border-white shadow" style="background:#38bdf8"></span>
+          </span>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <input
+            id="convoyDriverNameInput"
+            type="text"
+            maxlength="22"
+            placeholder="Enter your name (e.g. Afriz)"
+            class="w-full rounded-xl bg-slate-800 day-bg-card border border-slate-700 px-3 py-2 text-sm font-bold text-white day-text-dark placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+          />
+        </div>
+      </div>
+
+      <!-- VIEW 1: NOT IN A CONVOY (Start as Leader OR Join by Code) -->
+      <div id="convoyJoinCreateSection" class="space-y-4">
+        <!-- Create Convoy Card -->
+        <div class="p-4 rounded-2xl bg-gradient-to-br from-indigo-600/25 to-sky-600/15 border border-indigo-400/40">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <span class="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded bg-indigo-500/30 text-indigo-200 border border-indigo-400/30">Leader Mode</span>
+              <h4 class="text-base font-extrabold text-white day-text-dark mt-1">Start a New Convoy</h4>
+              <p class="text-xs text-slate-300 day-text-muted mt-0.5">You set the destination & route; everyone else auto-syncs to your route.</p>
+            </div>
+            <button
+              id="createConvoyBtn"
+              class="btn-tactile shrink-0 px-4 py-3 rounded-2xl bg-indigo-500 hover:bg-indigo-400 text-white font-black text-xs sm:text-sm shadow-lg shadow-indigo-500/30"
+            >
+              Create Convoy ➔
+            </button>
+          </div>
+        </div>
+
+        <!-- Join Existing Convoy Card -->
+        <div class="p-4 rounded-2xl bg-slate-900/80 day-bg-card border border-slate-800">
+          <h4 class="text-sm font-extrabold text-white day-text-dark">Join Friend's Convoy</h4>
+          <p class="text-xs text-slate-400 day-text-muted mt-0.5 mb-3">Enter the 6-character Convoy Code shared by your convoy leader:</p>
+          <div class="flex items-center gap-2">
+            <input
+              id="joinConvoyCodeInput"
+              type="text"
+              maxlength="6"
+              placeholder="e.g. K9X4M2"
+              class="flex-1 uppercase font-mono tracking-widest text-center text-base font-black rounded-xl bg-slate-800 day-bg-card border border-slate-700 px-3 py-2.5 text-white day-text-dark placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-sky-400"
+            />
+            <button
+              id="joinConvoyBtn"
+              class="btn-tactile px-5 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-sm shadow-lg shadow-sky-500/25"
+            >
+              Join
+            </button>
+          </div>
+          <p id="convoyErrorMsg" class="hidden text-xs font-bold text-rose-400 mt-2"></p>
+        </div>
+      </div>
+
+      <!-- VIEW 2: ACTIVE CONVOY ROSTER & SHARE PANEL -->
+      <div id="convoyActiveRosterSection" class="hidden space-y-4">
+        <div class="p-4 rounded-2xl bg-indigo-950/60 border border-indigo-400/40 flex items-center justify-between gap-3">
+          <div>
+            <p class="text-[11px] font-bold uppercase tracking-wider text-indigo-300">Active Convoy Code</p>
+            <p id="modalConvoyCodeDisplay" class="text-2xl font-black font-mono tracking-widest text-white mt-0.5">------</p>
+            <p id="modalConvoyRouteStatus" class="text-xs text-slate-300 mt-0.5">Waiting for leader to select destination...</p>
+          </div>
+          <div class="flex flex-col gap-1.5 shrink-0">
+            <button
+              id="modalCopyInviteBtn"
+              class="btn-tactile px-3.5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-400 text-white font-extrabold text-xs shadow"
+            >
+              🔗 Copy Invite Link
+            </button>
+            <button
+              id="leaveConvoyBtn"
+              class="btn-tactile px-3.5 py-1.5 rounded-xl bg-rose-600/25 hover:bg-rose-600/40 text-rose-300 border border-rose-500/40 font-bold text-xs"
+            >
+              Leave Convoy
+            </button>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <h4 class="text-xs font-extrabold uppercase tracking-wider text-slate-400">Live Convoy Drivers</h4>
+            <span id="rosterDriverCountLabel" class="text-xs font-bold text-indigo-400">1 Driver</span>
+          </div>
+          <div id="convoyRosterList" class="space-y-2 max-h-52 overflow-y-auto custom-scroll">
+            <!-- Populated dynamically with live driver cards -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+
+  <!-- Supabase JS SDK v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- Main Application Logic -->
+  <script src="app.js"></script>
+</body>
+</html>

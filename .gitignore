@@ -1,0 +1,12 @@
+# Large binary map tiles (exceeds GitHub 100MB limit)
+map.pmtiles
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local environment & secrets
+.env
+.env.local
+*.log

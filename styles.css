@@ -1,0 +1,614 @@
+/* Custom Styles for PulseNav - Waze & Google Maps Inspired Navigation App */
+
+:root {
+  --bg-glass-dark: rgba(15, 23, 42, 0.88);
+  --bg-glass-light: rgba(255, 255, 255, 0.92);
+  --border-glass-dark: rgba(148, 163, 184, 0.18);
+  --border-glass-light: rgba(15, 23, 42, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  user-select: none;
+}
+
+#map {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 1;
+  background: #0b1120;
+}
+
+/* Prevent Tailwind CDN preflight from breaking Leaflet map tiles */
+.leaflet-container img,
+.leaflet-tile {
+  max-width: none !important;
+  max-height: none !important;
+}
+
+/* OpenStreetMap Night / Day Theme Tile Styling */
+body:not(.theme-day) .leaflet-tile-pane {
+  filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
+  transition: filter 0.3s ease;
+}
+
+body.theme-day #map {
+  background: #e2e8f0;
+}
+
+body.theme-day .leaflet-tile-pane {
+  filter: none !important;
+}
+
+/* Glassmorphism surfaces */
+.glass-panel {
+  background: var(--bg-glass-dark);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border-glass-dark);
+}
+
+body.theme-day .glass-panel {
+  background: var(--bg-glass-light);
+  border: 1px solid var(--border-glass-light);
+  color: #0f172a;
+}
+
+body.theme-day .day-text-dark {
+  color: #0f172a !important;
+}
+
+body.theme-day .day-text-muted {
+  color: #475569 !important;
+}
+
+body.theme-day .day-bg-card {
+  background: rgba(241, 245, 249, 0.9) !important;
+  border-color: rgba(15, 23, 42, 0.1) !important;
+}
+
+/* ========================================================
+   NAVIGATION MODE DYNAMICS: AVOID BANNER OVERLAP & CLEAN TILES
+   ======================================================== */
+/* Map always fills the screen 100% edge-to-edge without distorted perspective or cut-off black voids */
+#map {
+  width: 100%;
+  height: 100%;
+}
+
+/* When any top banner (#tbtHeader and/or #activeConvoyPill) is active, slide top controls smoothly down below all banners */
+#topLeftControls,
+#topRightControls {
+  transition: top 0.35s cubic-bezier(0.2, 0.95, 0.35, 1);
+  z-index: 1050;
+}
+
+body.has-top-banner #topLeftControls,
+body.has-top-banner #topRightControls,
+body.nav-mode-active #topLeftControls,
+body.nav-mode-active #topRightControls,
+body.nav-mode-3d #topLeftControls,
+body.nav-mode-3d #topRightControls {
+  top: calc(var(--top-overlays-bottom, var(--tbt-banner-bottom, 9.75rem)) + 0.75rem) !important;
+}
+
+@media (min-width: 640px) {
+  body.has-top-banner #topLeftControls,
+  body.has-top-banner #topRightControls,
+  body.nav-mode-active #topLeftControls,
+  body.nav-mode-active #topRightControls,
+  body.nav-mode-3d #topLeftControls,
+  body.nav-mode-3d #topRightControls {
+    top: calc(var(--top-overlays-bottom, var(--tbt-banner-bottom, 11rem)) + 0.75rem) !important;
+  }
+}
+
+/* Also shift approaching hazard alert toast down when top banner is active */
+body.has-top-banner #hazardApproachToast,
+body.nav-mode-active #hazardApproachToast,
+body.nav-mode-3d #hazardApproachToast {
+  top: calc(var(--top-overlays-bottom, var(--tbt-banner-bottom, 9.75rem)) + 0.75rem) !important;
+}
+
+@media (min-width: 640px) {
+  body.has-top-banner #hazardApproachToast,
+  body.nav-mode-active #hazardApproachToast,
+  body.nav-mode-3d #hazardApproachToast {
+    top: calc(var(--top-overlays-bottom, var(--tbt-banner-bottom, 11rem)) + 0.75rem) !important;
+  }
+}
+
+/* ========================================================
+   GPS USER MARKER: 2D PUCK vs 3D WAZE VEHICLE ARROW
+   ======================================================== */
+.gps-user-marker {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* In 2D Idle mode: Show puck, hide arrow */
+.gps-user-marker .gps-puck-wrapper {
+  display: flex;
+  position: relative;
+  width: 48px;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+}
+
+.gps-user-marker .nav-vehicle-arrow-wrapper {
+  display: none;
+  position: relative;
+  width: 52px;
+  height: 52px;
+  align-items: center;
+  justify-content: center;
+}
+
+/* In Active Navigation mode: Switch to Waze vehicle arrow */
+body.nav-mode-active .gps-user-marker .gps-puck-wrapper,
+body.nav-mode-3d .gps-user-marker .gps-puck-wrapper {
+  display: none !important;
+}
+
+body.nav-mode-active .gps-user-marker .nav-vehicle-arrow-wrapper,
+body.nav-mode-3d .gps-user-marker .nav-vehicle-arrow-wrapper {
+  display: flex !important;
+}
+
+.nav-arrow-chevron {
+  width: 48px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transform-origin: 50% 50%;
+  transition: transform 0.25s cubic-bezier(0.2, 0.9, 0.3, 1);
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.65));
+}
+
+@keyframes navRadarPulse {
+  0% {
+    transform: scale(0.65);
+    opacity: 0.85;
+  }
+  100% {
+    transform: scale(1.65);
+    opacity: 0;
+  }
+}
+
+.nav-arrow-radar {
+  animation: navRadarPulse 2s infinite ease-out;
+  transform-origin: 22px 24px;
+}
+
+/* Custom User GPS Puck Marker (2D Idle) */
+.gps-puck-wrapper {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.gps-accuracy-ring {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(56, 189, 248, 0.22);
+  border: 1.5px solid rgba(56, 189, 248, 0.5);
+  animation: gpsPulse 2.2s infinite ease-out;
+}
+
+.gps-heading-cone {
+  position: absolute;
+  width: 48px;
+  height: 48px;
+  background: conic-gradient(from -35deg at 50% 50%, rgba(56, 189, 248, 0.55) 0deg, rgba(56, 189, 248, 0.0) 70deg, transparent 70deg);
+  border-radius: 50%;
+  transform-origin: center center;
+  transition: transform 0.25s ease-out;
+  pointer-events: none;
+}
+
+.gps-puck-core {
+  position: relative;
+  width: 22px;
+  height: 22px;
+  background: linear-gradient(135deg, #38bdf8, #2563eb);
+  border: 3px solid #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 3px 12px rgba(37, 99, 235, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+}
+
+.gps-puck-arrow {
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 7px solid #ffffff;
+  transform: translateY(-1px);
+}
+
+@keyframes gpsPulse {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.75);
+    opacity: 0;
+  }
+}
+
+/* ========================================================
+   WAZE-STYLE HIGH-PRECISION SPEEDOMETER & SPEED WARNING
+   ======================================================== */
+#speedometerContainer {
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.2s ease;
+}
+
+#speedometerContainer.speeding-warning {
+  border-color: #f59e0b !important;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.55), 0 8px 24px rgba(0, 0, 0, 0.4) !important;
+  animation: speedPulseWarning 1.2s infinite ease-in-out;
+}
+
+#speedometerContainer.speeding-warning #currentSpeedValue {
+  color: #fbbf24 !important;
+}
+
+@keyframes speedPulseWarning {
+  0%, 100% {
+    transform: scale(1);
+    border-color: #f59e0b;
+  }
+  50% {
+    transform: scale(1.04);
+    border-color: #ef4444;
+    box-shadow: 0 0 25px rgba(239, 68, 68, 0.7), 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+}
+
+/* Speed Limit Sign Badge (Waze / International standard) */
+.speed-limit-sign {
+  width: 26px;
+  height: 26px;
+  background-color: #ffffff;
+  border: 2.5px solid #dc2626;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.4);
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  z-index: 10;
+}
+
+.speed-limit-sign span {
+  color: #111827;
+  font-size: 10px;
+  font-weight: 900;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  line-height: 1;
+  letter-spacing: -0.5px;
+}
+
+/* Real-world GPS Accuracy Confidence Circle */
+.leaflet-overlay-pane path.gps-accuracy-circle {
+  pointer-events: none !important;
+  transition: all 0.4s ease-out;
+}
+
+/* Custom Incident Markers on Map */
+.incident-marker-container {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.incident-marker-container:hover {
+  transform: scale(1.18) translateY(-3px);
+  z-index: 999 !important;
+}
+
+.incident-pin {
+  width: 40px;
+  height: 40px;
+  border-radius: 50% 50% 50% 10%;
+  transform: rotate(-45deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
+  position: relative;
+}
+
+.incident-pin-inner {
+  transform: rotate(45deg);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.incident-badge-count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background: #0f172a;
+  color: #f8fafc;
+  border: 1.5px solid #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 999px;
+  z-index: 3;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+}
+
+.incident-pulse-ring {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  animation: hazardRing 2s infinite ease-out;
+  pointer-events: none;
+}
+
+@keyframes hazardRing {
+  0% {
+    transform: scale(0.8);
+    opacity: 0.75;
+  }
+  100% {
+    transform: scale(1.65);
+    opacity: 0;
+  }
+}
+
+/* Destination Pin */
+.dest-marker-pin {
+  width: 38px;
+  height: 38px;
+  border-radius: 50% 50% 50% 0;
+  background: linear-gradient(135deg, #ec4899, #e11d48);
+  transform: rotate(-45deg);
+  border: 3px solid #ffffff;
+  box-shadow: 0 6px 18px rgba(225, 29, 72, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dest-marker-pin span {
+  transform: rotate(45deg);
+  font-size: 17px;
+}
+
+/* Leaflet Popup Customization */
+.leaflet-popup-content-wrapper {
+  background: rgba(15, 23, 42, 0.95) !important;
+  backdrop-filter: blur(12px);
+  color: #f8fafc !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5) !important;
+  padding: 0 !important;
+}
+
+.leaflet-popup-content {
+  margin: 0 !important;
+  width: 260px !important;
+}
+
+.leaflet-popup-tip {
+  background: rgba(15, 23, 42, 0.95) !important;
+}
+
+.leaflet-container a.leaflet-popup-close-button {
+  color: #94a3b8 !important;
+  padding: 8px 10px 0 0 !important;
+}
+
+/* Solid Route Polyline */
+.route-line-animated {
+  stroke-dasharray: none;
+  animation: none;
+}
+
+/* Tactile button feedback */
+.btn-tactile {
+  transition: transform 0.12s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn-tactile:active {
+  transform: scale(0.94);
+}
+
+/* Map Crosshair for Tap-to-Place mode */
+.map-tap-cursor #map {
+  cursor: crosshair !important;
+}
+
+/* Scrollbar styling */
+.custom-scroll::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+.custom-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.custom-scroll::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
+}
+
+/* Drawer & Modal transitions */
+.drawer-transition {
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
+}
+
+/* Convoy Live Driver Markers on Map */
+.convoy-driver-wrapper {
+  position: relative;
+  width: 52px;
+  height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.convoy-driver-pulse {
+  position: absolute;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  animation: gpsPulse 2.4s infinite ease-out;
+  pointer-events: none;
+}
+
+.convoy-driver-core {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2.5px solid #ffffff;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2;
+  transition: transform 0.25s ease-out;
+}
+
+.convoy-driver-arrow {
+  width: 0;
+  height: 0;
+  border-left: 4.5px solid transparent;
+  border-right: 4.5px solid transparent;
+  border-bottom: 8px solid #ffffff;
+  transform: translateY(-1px);
+}
+
+.convoy-driver-tag {
+  position: absolute;
+  bottom: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  background: rgba(15, 23, 42, 0.92);
+  color: #f8fafc;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 1.5px 6px;
+  border-radius: 999px;
+  border: 1.5px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.45);
+  z-index: 4;
+}
+
+/* Ensure Route Preview Card always stacks vertically even after Live Server hot-reload */
+#routePreviewCard:not(.hidden) {
+  display: block !important;
+}
+
+/* Custom Tactical Volume Slider styling */
+#voiceVolumeSlider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: rgba(148, 163, 184, 0.28);
+  border-radius: 9999px;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+#voiceVolumeSlider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #10b981;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+  border: 2px solid #ffffff;
+  transition: transform 0.15s ease, background-color 0.2s;
+}
+
+#voiceVolumeSlider::-webkit-slider-thumb:hover,
+#voiceVolumeSlider::-webkit-slider-thumb:active {
+  transform: scale(1.25);
+}
+
+#voiceVolumeSlider::-moz-range-thumb {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #10b981;
+  cursor: pointer;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+  border: 2px solid #ffffff;
+}
+
+body.theme-day #voiceVolumeSlider {
+  background: rgba(100, 116, 139, 0.25);
+}
+
+/* Top-Left Expandable Road Alerts Ticker */
+#liveTickerContainer {
+  transition: width 0.25s cubic-bezier(0.16, 1, 0.3, 1), max-width 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+
+@keyframes tickerSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.animate-ticker-in {
+  animation: tickerSlideIn 0.2s ease-out forwards;
+}
+
+
+
+
