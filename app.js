@@ -910,8 +910,18 @@
     durationMs: 750,
     animId: null,
 
+    displayLat: null,
+    displayLng: null,
+
     animateTo(lat, lng, bearing, durationMs = 750) {
+      // Continue smoothly from the currently displayed position if a glide is mid-flight
+      if (this.animId && this.displayLat !== null) {
+        this.currentLat = this.displayLat;
+        this.currentLng = this.displayLng;
+      }
       if (this.currentLat === null) {
+        this.displayLat = lat;
+        this.displayLng = lng;
         this.currentLat = lat;
         this.currentLng = lng;
         this.currentBearing = bearing;
@@ -927,6 +937,8 @@
       // If position jump is large (> 250m, e.g. initial fix or warp), set immediately without animation
       const jumpM = getDistanceMeters(this.currentLat, this.currentLng, lat, lng);
       if (jumpM > 250) {
+        this.displayLat = lat;
+        this.displayLng = lng;
         this.currentLat = lat;
         this.currentLng = lng;
         this.currentBearing = bearing;
@@ -936,7 +948,7 @@
         if (state.userMarker) {
           state.userMarker.setLatLng([lat, lng]);
         }
-        if (state.followUser && state.map) {
+        if (state.followUser && state.map && !state.isNavigating) {
           state.map.setView([lat, lng], state.map.getZoom(), { animate: false });
         }
         return;
@@ -968,6 +980,9 @@
         let angleDiff = ((this.targetBearing - this.currentBearing + 540) % 360) - 180;
         const interpBearing = this.currentBearing + angleDiff * ease;
 
+        this.displayLat = interpLat;
+        this.displayLng = interpLng;
+
         if (state.userMarker) {
           state.userMarker.setLatLng([interpLat, interpLng]);
           const cone = document.getElementById('gpsHeadingCone');
@@ -987,12 +1002,9 @@
           state.accuracyCircle.setLatLng([interpLat, interpLng]);
         }
 
-        if (state.followUser && state.map) {
+        // In Ride Mode the navCamera owns the map view (pan + course-up rotation)
+        if (state.followUser && state.map && !state.isNavigating) {
           state.map.panTo([interpLat, interpLng], { animate: false });
-          // In Ride Mode: rotate map smoothly beneath vehicle so road ahead faces UP
-          if (state.isNavigating && typeof state.map.setBearing === 'function') {
-            state.map.setBearing(-interpBearing);
-          }
         }
 
         if (progress < 1) {
@@ -1003,6 +1015,134 @@
           this.currentBearing = this.targetBearing;
           this.animId = null;
         }
+      });
+    }
+  };
+
+  // ==========================================
+  // RIDE MODE CAMERA: COURSE-UP MAP FOLLOWING THE HIGHLIGHTED ROUTE (Waze-style)
+  // Vehicle arrow stays locked pointing UP; the map rotates so the route ahead
+  // always points up the screen, and the car sits in the lower part of the view.
+  // ==========================================
+  const navCamera = {
+    rafId: null,
+    bearing: 0, // current smoothed map heading (degrees, 0 = north)
+    lastFrame: 0,
+    LOOKAHEAD_M: 20, // how far ahead along the route the camera aims
+    SMOOTH_TAU_S: 0.45, // rotation smoothing time constant
+    CAR_SCREEN_Y: 0.68, // vehicle sits at 68% of screen height (more road visible ahead)
+
+    start(initialHeading) {
+      this.bearing = Number.isFinite(initialHeading) ? initialHeading : this.computeTargetHeading();
+      this.lastFrame = performance.now();
+      if (!this.rafId) this.tick();
+    },
+
+    stop() {
+      if (this.rafId) cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+      if (state.map && typeof state.map.setBearing === 'function') {
+        state.map.setBearing(0);
+      }
+    },
+
+    /** Current displayed car position (smooth marker glide position) */
+    getCarPos() {
+      if (markerAnimator.displayLat !== null) {
+        return { lat: markerAnimator.displayLat, lng: markerAnimator.displayLng };
+      }
+      return { lat: state.userPos.lat, lng: state.userPos.lng };
+    },
+
+    /** Heading the road ahead is going: aim at a point LOOKAHEAD_M ahead along the highlighted route */
+    computeTargetHeading() {
+      const car = this.getCarPos();
+      const route = state.routes[state.selectedRouteIdx];
+      if (!route || !route.coords || route.coords.length < 2) return state.userHeading || 0;
+
+      const coords = route.coords;
+      const idx = Math.min(state.currentRouteVertexIdx || 0, coords.length - 2);
+
+      // Only follow the route while the car is actually on it; otherwise use GPS heading
+      const proj = projectPointOnSegment(
+        car.lat, car.lng, coords[idx][0], coords[idx][1], coords[idx + 1][0], coords[idx + 1][1]
+      );
+      if (!proj || proj.distM > 40) return state.userHeading || 0;
+
+      let remaining = this.LOOKAHEAD_M;
+      let fromLat = proj.lat;
+      let fromLng = proj.lng;
+      let targetLat = coords[idx + 1][0];
+      let targetLng = coords[idx + 1][1];
+
+      for (let i = idx + 1; i < coords.length; i++) {
+        const segLen = getDistanceMeters(fromLat, fromLng, coords[i][0], coords[i][1]);
+        if (segLen >= remaining) {
+          const t = segLen > 0 ? remaining / segLen : 0;
+          targetLat = fromLat + (coords[i][0] - fromLat) * t;
+          targetLng = fromLng + (coords[i][1] - fromLng) * t;
+          break;
+        }
+        remaining -= segLen;
+        fromLat = coords[i][0];
+        fromLng = coords[i][1];
+        targetLat = fromLat;
+        targetLng = fromLng;
+      }
+
+      // Too close to destination to get a meaningful direction: keep segment bearing
+      if (getDistanceMeters(proj.lat, proj.lng, targetLat, targetLng) < 2) {
+        return Number.isFinite(proj.bearing) ? proj.bearing : this.bearing;
+      }
+      return getBearing(proj.lat, proj.lng, targetLat, targetLng);
+    },
+
+    tick() {
+      this.rafId = requestAnimationFrame((now) => {
+        this.rafId = null;
+        if (!state.isNavigating || !state.map) return;
+
+        const dt = Math.min(0.25, Math.max(0, (now - this.lastFrame) / 1000));
+        this.lastFrame = now;
+
+        const tz = state.map.touchZoom;
+        const userZooming = state.map._animatingZoom || (tz && tz._zooming);
+
+        if (state.followUser && !userZooming) {
+          // 1. Smoothly rotate toward the road-ahead heading (shortest arc, no 360° spins)
+          const target = this.computeTargetHeading();
+          if (Number.isFinite(target)) {
+            const diff = ((target - this.bearing + 540) % 360) - 180;
+            const k = 1 - Math.exp(-dt / this.SMOOTH_TAU_S);
+            this.bearing = (this.bearing + diff * k + 360) % 360;
+          }
+
+          // 2. Place the car in the lower part of the screen, offset in the rotated frame
+          const map = state.map;
+          const car = this.getCarPos();
+          const zoom = map.getZoom();
+          const size = map.getSize();
+          const dy = size.y * (this.CAR_SCREEN_Y - 0.5);
+          const rad = (this.bearing * Math.PI) / 180;
+          const carPx = map.project([car.lat, car.lng], zoom);
+          // Screen offset (0, dy) converted into un-rotated map pixel space
+          const centerPx = L.point(carPx.x + dy * Math.sin(rad), carPx.y - dy * Math.cos(rad));
+          const center = map.unproject(centerPx, zoom);
+
+          const cur = map.getCenter();
+          if (Math.abs(cur.lat - center.lat) > 1e-8 || Math.abs(cur.lng - center.lng) > 1e-8) {
+            map.setView(center, zoom, { animate: false });
+          }
+          if (typeof map.setBearing === 'function') {
+            const curB = map.getBearing ? map.getBearing() : 0;
+            const wantB = (360 - this.bearing) % 360;
+            if (Math.abs(((wantB - curB + 540) % 360) - 180) > 0.05) {
+              map.setBearing(-this.bearing);
+            }
+          }
+        }
+
+        this.tick();
       });
     }
   };
@@ -2203,7 +2343,9 @@
 
   /**
    * Project point P(pLat, pLng) onto road segment AB(aLat, aLng -> bLat, bLng)
-   * Returns { lat, lng, t, distM } where t in [0, 1].
+   * Returns { lat, lng, t, distM, bearing } where t in [0, 1].
+   * NOTE: This declaration overrides the earlier one of the same name (function hoisting),
+   * so it must also return the segment bearing used by snap-to-route / course-up camera.
    */
   function projectPointOnSegment(pLat, pLng, aLat, aLng, bLat, bLng) {
     const cosLat = Math.cos((pLat * Math.PI) / 180);
@@ -2224,7 +2366,8 @@
     const projLat = aLat + t * (bLat - aLat);
     const projLng = aLng + t * (bLng - aLng);
     const distM = getDistanceMeters(pLat, pLng, projLat, projLng);
-    return { lat: projLat, lng: projLng, t, distM };
+    const bearing = getBearing(aLat, aLng, bLat, bLng);
+    return { lat: projLat, lng: projLng, t, distM, bearing };
   }
 
   /**
@@ -3652,10 +3795,9 @@
     }
 
     setFollowMode(true);
-    state.map.setView([state.userPos.lat, state.userPos.lng], 17.5, { animate: true });
-    if (typeof state.map.setBearing === 'function') {
-      state.map.setBearing(-state.userHeading);
-    }
+    state.map.setView([state.userPos.lat, state.userPos.lng], 17.5, { animate: false });
+    // Start Waze-style course-up camera: map rotates to follow the highlighted route ahead
+    navCamera.start(navCamera.computeTargetHeading());
 
     onLiveNavigationPositionUpdate(state.userPos.lat, state.userPos.lng);
 
@@ -3865,9 +4007,7 @@
 
     // Exit 3D Waze Navigation Perspective back to 2D flat mode & reset map bearing to North-Up
     document.body.classList.remove('nav-mode-active', 'nav-mode-3d');
-    if (state.map && typeof state.map.setBearing === 'function') {
-      state.map.setBearing(0);
-    }
+    navCamera.stop();
     syncNavControlsPosition();
 
     document.getElementById('tbtHeader').classList.add('hidden');
@@ -5242,8 +5382,11 @@
         startLiveGpsTracking(true);
       } else {
         setFollowMode(true);
-        if (state.isNavigating && state.map && typeof state.map.setBearing === 'function') {
-          state.map.setBearing(-state.userHeading);
+        if (state.isNavigating) {
+          // Ride Mode: the navCamera snaps back to course-up behind the vehicle
+          if (state.map.getZoom() < 16) state.map.setZoom(17.5, { animate: false });
+          navCamera.start(navCamera.bearing);
+          return;
         }
         state.map.flyTo([state.userPos.lat, state.userPos.lng], state.isNavigating ? 17 : 16, {
           animate: true,
