@@ -47,7 +47,7 @@
     traffic: {
       id: 'traffic',
       label: 'Heavy Traffic',
-      icon: '🚗',
+      icon: 'TRF',
       color: '#f59e0b',
       ringColor: 'rgba(245, 158, 11, 0.5)',
       badgeBg: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
@@ -60,7 +60,7 @@
     accident: {
       id: 'accident',
       label: 'Accident',
-      icon: '⚠️',
+      icon: 'ACC',
       color: '#ef4444',
       ringColor: 'rgba(239, 68, 68, 0.55)',
       badgeBg: 'bg-rose-500/20 text-rose-300 border-rose-500/40',
@@ -73,7 +73,7 @@
     police: {
       id: 'police',
       label: 'Police / Speed Trap',
-      icon: '🚓',
+      icon: 'POL',
       color: '#3b82f6',
       ringColor: 'rgba(59, 130, 246, 0.5)',
       badgeBg: 'bg-blue-500/20 text-blue-300 border-blue-500/40',
@@ -86,7 +86,7 @@
     hazard: {
       id: 'hazard',
       label: 'Road Hazard',
-      icon: '🚧',
+      icon: 'HAZ',
       color: '#f97316',
       ringColor: 'rgba(249, 115, 22, 0.5)',
       badgeBg: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
@@ -336,19 +336,57 @@
     return `${(meters / 1000).toFixed(1)} km`;
   }
 
-  /** Format seconds into '14 min' or '1 hr 12 min' */
+  /** Format seconds into '14 min' or '1 hour 30 minutes' */
   function formatDuration(seconds) {
     const mins = Math.max(1, Math.round(seconds / 60));
     if (mins < 60) return `${mins} min`;
     const hrs = Math.floor(mins / 60);
     const rem = mins % 60;
-    return rem > 0 ? `${hrs} hr ${rem} min` : `${hrs} hr`;
+    const hrLabel = hrs === 1 ? 'hour' : 'hours';
+    const minLabel = rem === 1 ? 'minute' : 'minutes';
+    return rem > 0 ? `${hrs} ${hrLabel} ${rem} ${minLabel}` : `${hrs} ${hrLabel}`;
   }
 
-  /** Compute arrival clock time string (HH:MM) given seconds from now */
+  /** Format remaining navigation seconds into styled HTML with hour(s) and min when >= 60 min */
+  function formatHudRemainingTimeHtml(seconds) {
+    const totalMins = Math.max(1, Math.ceil(seconds / 60));
+    if (totalMins < 60) {
+      return `
+        <span class="whitespace-nowrap">
+          <span class="text-xl sm:text-2xl font-black text-emerald-400">${totalMins}</span>
+          <span class="text-xs sm:text-sm font-bold text-emerald-300 ml-0.5">min</span>
+        </span>
+      `;
+    }
+    const hrs = Math.floor(totalMins / 60);
+    const remMins = totalMins % 60;
+    const hrLabel = hrs === 1 ? 'hour' : 'hours';
+    if (remMins === 0) {
+      return `
+        <span class="whitespace-nowrap">
+          <span class="text-xl sm:text-2xl font-black text-emerald-400">${hrs}</span>
+          <span class="text-xs sm:text-sm font-bold text-emerald-300 ml-0.5">${hrLabel}</span>
+        </span>
+      `;
+    }
+    return `
+      <span class="whitespace-nowrap">
+        <span class="text-xl sm:text-2xl font-black text-emerald-400">${hrs}</span>
+        <span class="text-xs sm:text-sm font-bold text-emerald-300 ml-0.5">${hrLabel}</span>
+      </span>
+      <span class="whitespace-nowrap">
+        <span class="text-xl sm:text-2xl font-black text-emerald-400">${remMins}</span>
+        <span class="text-xs sm:text-sm font-bold text-emerald-300 ml-0.5">min</span>
+      </span>
+    `;
+  }
+
+  /** Compute arrival clock time string (e.g. '4:30 pm') given seconds from now */
   function formatETA(secondsFromNow) {
     const arrival = new Date(Date.now() + secondsFromNow * 1000);
-    return arrival.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    return arrival
+      .toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+      .toLowerCase();
   }
 
   /** Format relative time ("Just now", "6m ago") */
@@ -394,14 +432,13 @@
       slider.value = pct;
     }
 
-    let iconText = '🔊';
-    if (pct === 0) {
-      iconText = '🔇';
-    } else if (pct <= 50) {
-      iconText = '🔉';
+    if (mainIcon) {
+      if (pct === 0) {
+        mainIcon.innerHTML = `<svg class="w-5 h-5 text-rose-400" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5L6 9H2v6h4l5 4V5zM23 9l-6 6m0-6l6 6"/></svg>`;
+      } else {
+        mainIcon.innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5L6 9H2v6h4l5 4V5zM15.54 8.46a5 5 0 010 7.07${pct > 50 ? 'M19.07 4.93a10 10 0 010 14.14' : ''}"/></svg>`;
+      }
     }
-
-    if (mainIcon) mainIcon.textContent = iconText;
     if (label) {
       label.textContent = pct === 0 ? 'Mute' : `${pct}%`;
       label.className = `text-[11px] font-mono font-bold w-9 text-right shrink-0 ${
@@ -555,7 +592,7 @@
         selectDestination({
           name: 'Loading street address...',
           address: `${lat.toFixed(5)}, ${lng.toFixed(5)}`,
-          icon: '📍',
+          icon: '',
           lat,
           lng,
           streetHint: defaultName
@@ -614,10 +651,10 @@
 
     if (theme === 'day') {
       document.body.classList.add('theme-day');
-      document.getElementById('themeIcon').textContent = '☀️';
+      document.getElementById('themeIcon').innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><path stroke-linecap="round" d="M12 1v2m0 18v2M4.22 4.22l1.42 1.42m12.72 12.72l1.42 1.42M1 12h2m18 0h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>`;
     } else {
       document.body.classList.remove('theme-day');
-      document.getElementById('themeIcon').textContent = '🌙';
+      document.getElementById('themeIcon').innerHTML = `<svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>`;
     }
 
     setTimeout(() => {
@@ -1030,7 +1067,7 @@
     lastFrame: 0,
     LOOKAHEAD_M: 20, // how far ahead along the route the camera aims
     SMOOTH_TAU_S: 0.45, // rotation smoothing time constant
-    CAR_SCREEN_Y: 0.68, // vehicle sits at 68% of screen height (more road visible ahead)
+    CAR_SCREEN_Y: 0.60, // vehicle sits in lower-middle area clear of the bottom HUD
 
     start(initialHeading) {
       this.bearing = Number.isFinite(initialHeading) ? initialHeading : this.computeTargetHeading();
@@ -1117,12 +1154,19 @@
             this.bearing = (this.bearing + diff * k + 360) % 360;
           }
 
-          // 2. Place the car in the lower part of the screen, offset in the rotated frame
+          // 2. Place the car in the lower part of the screen, safely above #activeNavHud
           const map = state.map;
           const car = this.getCarPos();
           const zoom = map.getZoom();
           const size = map.getSize();
-          const dy = size.y * (this.CAR_SCREEN_Y - 0.5);
+          let targetScreenY = this.CAR_SCREEN_Y;
+          const hudEl = document.getElementById('activeNavHud');
+          if (hudEl && !hudEl.classList.contains('hidden') && size.y > 0) {
+            const hudTop = hudEl.getBoundingClientRect().top;
+            const maxCarY = (hudTop - 44) / size.y;
+            targetScreenY = Math.max(0.42, Math.min(this.CAR_SCREEN_Y, maxCarY));
+          }
+          const dy = size.y * (targetScreenY - 0.5);
           const rad = (this.bearing * Math.PI) / 180;
           const carPx = map.project([car.lat, car.lng], zoom);
           // Screen offset (0, dy) converted into un-rotated map pixel space
@@ -1304,8 +1348,8 @@
     locateMeBtn.textContent = 'Locate Me';
     dismissBtn.classList.add('hidden');
     if (iconBox) {
-      iconBox.className = 'w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-xl shrink-0';
-      iconBox.textContent = '📍';
+      iconBox.className = 'w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-400/30 flex items-center justify-center text-xs font-extrabold text-amber-400 shrink-0';
+      iconBox.textContent = 'GPS';
     }
     showGpsStatusBanner(0);
 
@@ -1321,8 +1365,8 @@
         locateMeBtn.classList.add('hidden');
         dismissBtn.classList.remove('hidden');
         if (iconBox) {
-          iconBox.className = 'w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-xl shrink-0';
-          iconBox.textContent = '📡';
+          iconBox.className = 'w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-400/30 flex items-center justify-center text-xs font-extrabold text-sky-400 shrink-0';
+          iconBox.textContent = 'LIVE';
         }
 
         updateUserPosition(
@@ -1376,8 +1420,8 @@
         locateMeBtn.textContent = 'Locate Me';
         dismissBtn.classList.remove('hidden');
         if (iconBox) {
-          iconBox.className = 'w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center text-xl shrink-0';
-          iconBox.textContent = '⚠️';
+          iconBox.className = 'w-10 h-10 rounded-xl bg-rose-500/20 border border-rose-400/30 flex items-center justify-center text-xs font-extrabold text-rose-400 shrink-0';
+          iconBox.textContent = 'ERR';
         }
         showGpsStatusBanner(0);
       },
@@ -1544,9 +1588,9 @@
       <div class="incident-marker-container">
         <div class="incident-pulse-ring" style="background: ${cat.ringColor}"></div>
         <div class="incident-pin" style="background: ${cat.color}">
-          <span class="incident-pin-inner">${cat.icon}</span>
+          <span class="incident-pin-inner" style="font-size: 10px; font-weight: 900; color: #fff;">${cat.icon}</span>
         </div>
-        <span class="incident-badge-count">👍 ${report.upvotes}</span>
+        <span class="incident-badge-count">+${report.upvotes}</span>
       </div>
     `;
   }
@@ -1559,7 +1603,7 @@
       <div class="p-3.5 text-slate-100 font-sans">
         <div class="flex items-start justify-between gap-2 mb-2">
           <div class="flex items-center gap-2">
-            <span class="text-2xl">${cat.icon}</span>
+            <span class="w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-black border" style="background: ${cat.color}22; border-color: ${cat.color}66; color: ${cat.color}">${cat.icon}</span>
             <div>
               <span class="text-[10px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded border ${cat.badgeBg}">
                 ${cat.label} • ${report.subtype}
@@ -1571,7 +1615,7 @@
         ${report.note ? `<p class="text-xs text-slate-300 bg-slate-800/90 rounded-lg p-2 mb-2.5 border border-slate-700/70">"${report.note}"</p>` : ''}
         <div class="flex items-center justify-between text-[11px] text-slate-400 mb-3">
           <span>Reported ${formatTimeAgo(report.createdAt)}</span>
-          <span class="text-amber-400 font-semibold">⏳ ${formatExpiresIn(report.expiresAt)}</span>
+          <span class="text-amber-400 font-semibold">${formatExpiresIn(report.expiresAt)}</span>
         </div>
         <div class="flex items-center gap-2">
           <button
@@ -1582,7 +1626,6 @@
                 : 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
             }"
           >
-            <span>👍</span>
             <span>Still there (${report.upvotes})</span>
           </button>
           <button
@@ -1800,7 +1843,9 @@
     const tickerUpvoteCount = document.getElementById('tickerUpvoteCount');
 
     if (sorted.length === 0) {
-      if (tickerIcon) tickerIcon.textContent = '✅';
+      if (tickerIcon) {
+        tickerIcon.innerHTML = `<svg class="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" stroke-width="2.4" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`;
+      }
       if (tickerHazardBadge) tickerHazardBadge.classList.add('hidden');
       if (tickerTitle) {
         tickerTitle.textContent = 'ALL CLEAR:';
@@ -1862,9 +1907,8 @@
     if (sorted.length === 0) {
       container.innerHTML = `
         <div class="text-center py-12 px-4">
-          <div class="text-4xl mb-2">🛣️</div>
           <p class="text-sm font-bold text-slate-300 day-text-dark">No active reports</p>
-          <p class="text-xs text-slate-500 mt-1">Roads are clear! Tap "+ Report Incident Nearby" below if you spot traffic or a road hazard.</p>
+          <p class="text-xs text-slate-500 mt-1">Roads are clear. Tap "+ Report Incident Nearby" below if you spot traffic or a road hazard.</p>
         </div>
       `;
       return;
@@ -1884,7 +1928,7 @@
           <div class="rounded-2xl bg-slate-900/90 day-bg-card border border-slate-800 p-3.5 shadow-md hover:border-slate-700 transition">
             <div class="flex items-start justify-between gap-2.5">
               <div class="flex items-start gap-3 min-w-0">
-                <div class="w-11 h-11 rounded-xl flex items-center justify-center text-2xl shrink-0 border" style="background: ${cat.color}22; border-color: ${cat.color}66">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xs font-black shrink-0 border" style="background: ${cat.color}22; border-color: ${cat.color}66; color: ${cat.color}">
                   ${cat.icon}
                 </div>
                 <div class="min-w-0">
@@ -1909,7 +1953,7 @@
                 title="View on Map"
                 class="btn-tactile shrink-0 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-bold border border-slate-700"
               >
-                Map ⌖
+                Map
               </button>
             </div>
 
@@ -1934,13 +1978,13 @@
                       : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30'
                   }"
                 >
-                  👍 Yes (${report.upvotes})
+                  Yes (${report.upvotes})
                 </button>
                 <button
                   onclick="window.PulseNav.dismissReport('${report.id}')"
                   class="btn-tactile px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-rose-500/20 text-slate-400 hover:text-rose-300 text-xs font-semibold border border-slate-700"
                 >
-                  Cleared ✕
+                  Cleared
                 </button>
               </div>
             </div>
@@ -2006,8 +2050,11 @@
             class="search-result-live w-full text-left px-4 py-3 hover:bg-slate-800/80 flex items-center justify-between gap-3 transition"
           >
             <div class="flex items-center gap-3 min-w-0">
-              <span class="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-lg shrink-0">
-                📍
+              <span class="w-8 h-8 rounded-xl bg-sky-500/20 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.33-6-10a6 6 0 1112 0c0 4.67-6 10-6 10z"/>
+                  <circle cx="12" cy="11" r="2"/>
+                </svg>
               </span>
               <div class="min-w-0">
                 <p class="text-sm font-bold text-white day-text-dark truncate">${item.name}</p>
@@ -2030,7 +2077,7 @@
           selectDestination({
             name: target.name,
             address: target.address,
-            icon: '📍',
+            icon: '',
             lat: target.lat,
             lng: target.lng,
             streetHint: target.name
@@ -2094,7 +2141,7 @@
           selectDestination({
             name: results[0].name,
             address: results[0].address,
-            icon: '📍',
+            icon: '',
             lat: results[0].lat,
             lng: results[0].lng,
             streetHint: results[0].name
@@ -2157,7 +2204,7 @@
       showConvoyPingToast({
         senderName: 'Convoy Leader Lock',
         message: `Following ${state.convoy.leaderName || 'Leader'}'s shared route`,
-        icon: '👑'
+        icon: 'LOCK'
       });
       return;
     }
@@ -2195,7 +2242,7 @@
 
     const destIcon = L.divIcon({
       className: 'custom-dest-icon',
-      html: `<div class="dest-marker-pin"><span>🏁</span></div>`,
+      html: `<div class="dest-marker-pin"><span style="width:10px;height:10px;border-radius:50%;background:#fff;display:block;"></span></div>`,
       iconSize: [38, 38],
       iconAnchor: [19, 38]
     });
@@ -3562,6 +3609,90 @@
     }
   }
 
+  /**
+   * Guard against VS Code Live Server DOM hot-patcher duplicating nodes inside #activeNavHud
+   * when index.html is edited while the browser tab is open without a full reload.
+   */
+  function ensureCleanActiveNavHudDom() {
+    const hud = document.getElementById('activeNavHud');
+    if (!hud) return;
+
+    // If Live Server duplicated any children or left stale #recalcRouteBtn nodes, rebuild clean HUD markup
+    const hasStaleReroute = !!hud.querySelector('#recalcRouteBtn');
+    const distNodes = hud.querySelectorAll('#hudRemainingDist');
+    if (hasStaleReroute || distNodes.length !== 1 || hud.children.length !== 5) {
+      const isHidden = hud.classList.contains('hidden') && !state.isNavigating;
+      hud.className = `${isHidden ? 'hidden ' : ''}glass-panel rounded-2xl sm:rounded-3xl p-3 sm:p-3.5 shadow-2xl border border-emerald-500/40`;
+      hud.innerHTML = `
+        <div class="w-full h-1 bg-slate-800 rounded-full overflow-hidden mb-1.5">
+          <div id="navProgressBar" class="h-full bg-gradient-to-r from-emerald-400 to-sky-400 transition-all duration-300" style="width: 0%"></div>
+        </div>
+        <div class="text-center">
+          <p class="text-[10px] font-extrabold uppercase tracking-widest text-emerald-400 leading-none">ETA</p>
+          <div id="hudRemainingMin" class="flex flex-wrap items-baseline justify-center gap-x-1 gap-y-0 leading-tight mt-0.5">
+            <span class="text-xl sm:text-2xl font-black text-emerald-400">--</span>
+            <span class="text-xs sm:text-sm font-bold text-emerald-300">min</span>
+          </div>
+        </div>
+        <div class="grid grid-cols-[1fr_auto_1fr] items-center my-2">
+          <div class="text-center px-2">
+            <p id="hudRemainingDist" class="text-base sm:text-lg font-extrabold text-white day-text-dark whitespace-nowrap leading-tight">-- km</p>
+            <p class="text-[10px] sm:text-[11px] font-medium text-slate-400">Distance</p>
+          </div>
+          <div class="h-7 w-px bg-slate-700/80"></div>
+          <div class="text-center px-2">
+            <p id="hudEta" class="text-base sm:text-lg font-extrabold text-white day-text-dark whitespace-nowrap leading-tight">--:--</p>
+            <p class="text-[10px] sm:text-[11px] font-medium text-slate-400">Arrive time</p>
+          </div>
+        </div>
+        <div class="grid grid-cols-2 gap-2.5">
+          <button
+            id="overviewRouteBtn"
+            title="View Full Route Overview"
+            class="btn-tactile w-full py-1.5 sm:py-2 px-3 rounded-xl bg-slate-800/90 hover:bg-slate-700 day-bg-card text-white day-text-dark font-bold text-xs sm:text-sm border border-slate-700/80 flex items-center justify-center"
+          >
+            Overview
+          </button>
+          <button
+            id="stopNavBtn"
+            title="Stop Navigation"
+            class="btn-tactile w-full py-1.5 sm:py-2 px-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs sm:text-sm shadow-lg shadow-rose-600/30 flex items-center justify-center"
+          >
+            Stop
+          </button>
+        </div>
+        <div class="flex items-center justify-between pt-1.5 border-t border-slate-800/80 mt-2 px-0.5">
+          <div class="flex items-center gap-1.5 text-[10px] text-slate-400 font-medium">
+            <span class="inline-block w-1.5 h-1.5 rounded-full bg-sky-400"></span>
+            <span>Made by <strong class="text-sky-400 font-bold">Frizy</strong></span>
+          </div>
+          <span class="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">PulseNav Live</span>
+        </div>
+      `;
+    }
+
+    const stopBtn = document.getElementById('stopNavBtn');
+    if (stopBtn && !stopBtn.dataset.boundNav) {
+      stopBtn.dataset.boundNav = '1';
+      stopBtn.addEventListener('click', () => stopNavigation(false));
+    }
+
+    const overviewBtn = document.getElementById('overviewRouteBtn');
+    if (overviewBtn && !overviewBtn.dataset.boundNav) {
+      overviewBtn.dataset.boundNav = '1';
+      overviewBtn.addEventListener('click', () => {
+        const route = state.routes[state.selectedRouteIdx];
+        if (route && route.coords.length) {
+          setFollowMode(false);
+          if (state.map && typeof state.map.setBearing === 'function') {
+            state.map.setBearing(0);
+          }
+          state.map.fitBounds(L.latLngBounds(route.coords), { padding: [70, 70], maxZoom: 16 });
+        }
+      });
+    }
+  }
+
   function showRoutePreviewCard() {
     const dest = state.selectedDestination;
     const primary = state.routes[state.selectedRouteIdx];
@@ -3745,6 +3876,8 @@
     const route = state.routes[state.selectedRouteIdx];
     if (!route || !route.coords.length) return;
 
+    ensureCleanActiveNavHudDom();
+
     state.isNavigating = true;
     state.currentStepIdx = 0;
     state.currentRouteVertexIdx = 0;
@@ -3853,7 +3986,10 @@
     document.getElementById('navProgressBar').style.width = `${pct}%`;
 
     const remSec = Math.max(10, Math.round(route.durationS * (1 - progressRatio)));
-    document.getElementById('hudRemainingMin').textContent = Math.max(1, Math.ceil(remSec / 60));
+    const hudRemEl = document.getElementById('hudRemainingMin');
+    if (hudRemEl) {
+      hudRemEl.innerHTML = formatHudRemainingTimeHtml(remSec);
+    }
     document.getElementById('hudRemainingDist').textContent = formatDistance(remDistM);
     document.getElementById('hudEta').textContent = formatETA(remSec);
 
@@ -4017,7 +4153,7 @@
 
     if (completed) {
       document.getElementById('currentLocationLabel').textContent =
-        `Arrived at ${state.selectedDestination?.name || 'Destination'}! 🏁`;
+        `Arrived at ${state.selectedDestination?.name || 'Destination'}!`;
       showGpsStatusBanner(4500);
       state.routePolylines.forEach((line) => {
         try {
@@ -4955,7 +5091,7 @@
   }
 
   /** Send a 1-tap quick Convoy Ping to all drivers in the convoy */
-  async function broadcastConvoyPing(message, icon = '🚘') {
+  async function broadcastConvoyPing(message, icon = 'PING') {
     const code = state.convoy.activeCode;
     if (!code) return;
 
@@ -4998,7 +5134,7 @@
   let convoyPingToastTimer = null;
   function showConvoyPingToast(ping) {
     const toast = document.getElementById('convoyPingToast');
-    document.getElementById('convoyPingToastIcon').textContent = ping.icon || '🚘';
+    document.getElementById('convoyPingToastIcon').textContent = ping.icon || 'PING';
     document.getElementById('convoyPingToastSender').textContent = `Convoy • ${ping.senderName || 'Driver'}`;
     document.getElementById('convoyPingToastText').textContent = ping.message || '';
     toast.classList.remove('hidden');
@@ -5019,7 +5155,7 @@
       if (!member || member.id === state.convoy.driverId) return;
       activeIds.add(member.id);
 
-      const roleIcon = member.role === 'leader' ? '👑 ' : '';
+      const roleIcon = member.role === 'leader' ? '[L] ' : '';
       const speedText = member.speedKmh > 0 ? ` • ${Math.round(member.speedKmh)} km/h` : '';
       const color = member.color || '#a855f7';
 
@@ -5054,7 +5190,7 @@
         <div class="p-3.5 text-slate-100 font-sans">
           <div class="flex items-center justify-between gap-2 mb-1.5">
             <span class="text-xs font-extrabold uppercase tracking-wider px-2 py-0.5 rounded" style="background:${color}33; color:${color}; border:1px solid ${color}66">
-              ${member.role === 'leader' ? '👑 Convoy Leader' : '🚘 Convoy Driver'}
+              ${member.role === 'leader' ? 'Convoy Leader' : 'Convoy Driver'}
             </span>
             <span class="text-xs font-bold text-sky-400">${formatDistance(distFromMe)} away</span>
           </div>
@@ -5121,7 +5257,7 @@
                     m.role === 'leader'
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
                       : 'bg-slate-800 text-slate-300'
-                  }">${m.role === 'leader' ? '👑 Leader' : 'Member'}</span>
+                  }">${m.role === 'leader' ? 'Leader' : 'Member'}</span>
                 </div>
                 <p class="text-[11px] text-slate-400">
                   ${Math.round(m.speedKmh || 0)} km/h ${!isMe ? `• ${formatDistance(distM)} away` : '• Broadcasting live GPS'}
@@ -5130,7 +5266,7 @@
             </div>
             ${
               !isMe
-                ? `<button onclick="window.PulseNav.focusConvoyDriver('${m.id}')" class="btn-tactile px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-bold border border-slate-700">Map ⌖</button>`
+                ? `<button onclick="window.PulseNav.focusConvoyDriver('${m.id}')" class="btn-tactile px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 text-xs font-bold border border-slate-700">Map</button>`
                 : ''
             }
           </div>
@@ -5183,12 +5319,12 @@
 
     const roleBadge = document.getElementById('convoyRoleBadge');
     if (state.convoy.role === 'leader') {
-      roleBadge.textContent = '👑 Leader';
+      roleBadge.textContent = 'Leader';
       roleBadge.className = 'px-2 py-0.5 rounded-md bg-amber-500 text-slate-950 text-[10px] font-extrabold uppercase tracking-wider shrink-0';
       document.getElementById('destinationInput').placeholder =
         'Set destination for your entire Convoy...';
     } else {
-      roleBadge.textContent = `🚗 Following ${state.convoy.leaderName || 'Leader'}`;
+      roleBadge.textContent = `Following ${state.convoy.leaderName || 'Leader'}`;
       roleBadge.className = 'px-2 py-0.5 rounded-md bg-indigo-500 text-white text-[10px] font-extrabold uppercase tracking-wider shrink-0';
       document.getElementById('destinationInput').placeholder =
         `Synced to ${state.convoy.leaderName || 'Leader'}'s Convoy route`;
@@ -5208,7 +5344,7 @@
     showConvoyPingToast({
       senderName: `Convoy #${code}`,
       message: `Invite link copied! Share code ${code} with friends.`,
-      icon: '🔗'
+      icon: 'LINK'
     });
   }
 
@@ -5350,26 +5486,18 @@
       });
     });
 
-    // Start / Cancel / Reroute / Overview / Exit Navigation Controls
+    // Start / Cancel / Overview / Stop Navigation Controls
     document.getElementById('startNavBtn').addEventListener('click', startNavigation);
     document.getElementById('cancelRouteBtn').addEventListener('click', cancelRouteSelection);
     const toggleGraphBtn = document.getElementById('toggleGraphNodesBtn');
     if (toggleGraphBtn) {
       toggleGraphBtn.addEventListener('click', toggleGraphOverlay);
     }
-    document.getElementById('stopNavBtn').addEventListener('click', () => stopNavigation(false));
-    document.getElementById('recalcRouteBtn').addEventListener('click', recalculateActiveRoute);
-
-    document.getElementById('overviewRouteBtn').addEventListener('click', () => {
-      const route = state.routes[state.selectedRouteIdx];
-      if (route && route.coords.length) {
-        setFollowMode(false);
-        if (state.map && typeof state.map.setBearing === 'function') {
-          state.map.setBearing(0);
-        }
-        state.map.fitBounds(L.latLngBounds(route.coords), { padding: [70, 70], maxZoom: 16 });
-      }
-    });
+    ensureCleanActiveNavHudDom();
+    const recalcBtn = document.getElementById('recalcRouteBtn');
+    if (recalcBtn) {
+      recalcBtn.addEventListener('click', recalculateActiveRoute);
+    }
 
     document.getElementById('speakCurrentStepBtn').addEventListener('click', () => {
       speakCurrentTurnInstruction(true);
@@ -5607,7 +5735,7 @@
     document.querySelectorAll('.convoy-ping-btn').forEach((btn) => {
       btn.addEventListener('click', () => {
         const msg = btn.getAttribute('data-convoy-ping');
-        const icon = btn.getAttribute('data-ping-icon') || '🚘';
+        const icon = btn.getAttribute('data-ping-icon') || 'PING';
         broadcastConvoyPing(msg, icon);
       });
     });
@@ -5692,6 +5820,7 @@
   // ==========================================
   window.addEventListener('DOMContentLoaded', () => {
     ensureCleanRoutePreviewCardDom();
+    ensureCleanActiveNavHudDom();
     initMap();
     setupSearchAndAutocomplete();
     bindUIEvents();
