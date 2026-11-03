@@ -78,8 +78,10 @@
       <div class="rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 text-white shadow-2xl border border-emerald-400/40 overflow-hidden">
         <div class="p-3.5 sm:p-4 flex items-center gap-3.5">
           <!-- Maneuver Icon Box (Route Instruction) -->
-          <div id="tbtIconBox" class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-black/25 border border-white/20 flex items-center justify-center shrink-0 text-3xl font-black">
-            ⬆️
+          <div id="tbtIconBox" class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-black/25 border border-white/20 flex items-center justify-center shrink-0 text-white">
+            <svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6" />
+            </svg>
           </div>
 
           <!-- Distance & Street Info -->
@@ -504,24 +506,24 @@
         <!-- Route Alternative Selector Tabs -->
         <div id="routeAlternativesContainer" class="grid grid-cols-2 gap-2 mb-3.5">
           <button data-route-idx="0" class="route-alt-btn btn-tactile text-left p-2.5 rounded-xl bg-sky-500/20 border-2 border-sky-400 transition">
-            <div class="flex items-center justify-between">
-              <span id="alt0Title" class="text-xs font-bold text-sky-300 uppercase">Primary Route</span>
-              <span id="alt0Tag" class="text-[11px] font-semibold text-emerald-400">Fastest</span>
+            <div class="flex items-center justify-between gap-1.5">
+              <span id="alt0Title" class="text-xs font-bold text-sky-300 uppercase truncate">Primary Route</span>
+              <span id="alt0Tag" class="text-[11px] font-semibold text-emerald-400 shrink-0 whitespace-nowrap">Fastest</span>
             </div>
-            <div class="flex items-baseline gap-2 mt-0.5">
-              <span id="alt0Time" class="text-base sm:text-lg font-black text-white day-text-dark">-- min</span>
-              <span id="alt0Dist" class="text-xs text-slate-300 day-text-muted font-medium">-- km</span>
+            <div class="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 mt-1">
+              <span id="alt0Time" class="text-sm sm:text-base font-black text-white day-text-dark leading-tight">-- min</span>
+              <span id="alt0Dist" class="text-xs text-slate-300 day-text-muted font-semibold whitespace-nowrap">-- km</span>
             </div>
           </button>
 
           <button id="alt1Btn" data-route-idx="1" class="route-alt-btn btn-tactile text-left p-2.5 rounded-xl bg-slate-800/70 day-bg-card border border-slate-700/70 hover:border-slate-500 transition">
-            <div class="flex items-center justify-between">
-              <span id="alt1Title" class="text-xs font-bold text-slate-300 day-text-dark uppercase">Alternative</span>
-              <span id="alt1Tag" class="text-[11px] font-semibold text-amber-400">Option 2</span>
+            <div class="flex items-center justify-between gap-1.5">
+              <span id="alt1Title" class="text-xs font-bold text-slate-300 day-text-dark uppercase truncate">Alternative</span>
+              <span id="alt1Tag" class="text-[11px] font-semibold text-amber-400 shrink-0 whitespace-nowrap">Option 2</span>
             </div>
-            <div class="flex items-baseline gap-2 mt-0.5">
-              <span id="alt1Time" class="text-base sm:text-lg font-black text-white day-text-dark">-- min</span>
-              <span id="alt1Dist" class="text-xs text-slate-300 day-text-muted font-medium">-- km</span>
+            <div class="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5 mt-1">
+              <span id="alt1Time" class="text-sm sm:text-base font-black text-white day-text-dark leading-tight">-- min</span>
+              <span id="alt1Dist" class="text-xs text-slate-300 day-text-muted font-semibold whitespace-nowrap">-- km</span>
             </div>
           </button>
         </div>
@@ -541,9 +543,8 @@
 
           <button
             id="startNavBtn"
-            class="btn-tactile flex-1 max-w-[230px] py-3 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm sm:text-base shadow-xl shadow-emerald-500/30 flex items-center justify-center gap-2"
+            class="btn-tactile flex-1 max-w-[230px] py-3 px-5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-sm sm:text-base shadow-xl shadow-emerald-500/30 flex items-center justify-center"
           >
-            <span>▶</span>
             <span>Start Navigation</span>
           </button>
         </div>

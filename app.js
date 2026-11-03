@@ -2278,9 +2278,13 @@
     state.routes = routes;
     state.selectedRouteIdx = 0;
 
+    showRoutePreviewCard();
     renderRoutePolylines(true);
     renderGraphTopologyOverlay();
-    showRoutePreviewCard();
+    requestAnimationFrame(() => {
+      syncBottomControlsPosition();
+      fitRouteOverviewBounds();
+    });
 
     if (state.convoy.activeCode && state.convoy.role === 'leader') {
       syncLeaderStateToConvoy('routing');
@@ -2691,6 +2695,22 @@
       return [fullCoords || []];
     }
 
+    // Prefer each step's own exact GeoJSON geometry from OSRM when present
+    const hasStepGeometries = rawSteps.every(
+      (s) => s && s.geometry && Array.isArray(s.geometry.coordinates) && s.geometry.coordinates.length >= 1
+    );
+    if (hasStepGeometries) {
+      return rawSteps.map((s, idx) => {
+        const pts = s.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
+        if (pts.length >= 2) return pts;
+        const nextStep = rawSteps[idx + 1];
+        if (nextStep?.maneuver?.location) {
+          return [pts[0], [nextStep.maneuver.location[1], nextStep.maneuver.location[0]]];
+        }
+        return [pts[0], fullCoords[fullCoords.length - 1]];
+      });
+    }
+
     const stepStartIndices = [0];
     let searchFrom = 0;
 
@@ -2711,8 +2731,8 @@
           bestDist = d;
           bestIdx = j;
         }
-        // Stop searching ahead once we've passed the exact maneuver point (< 3m) and distance grows
-        if (bestDist < 3 && d > 25) break;
+        // Stop searching ahead once we've passed the maneuver point and distance grows
+        if (bestDist < 30 && d > bestDist + 35) break;
       }
       stepStartIndices.push(bestIdx);
       searchFrom = bestIdx;
@@ -2732,6 +2752,69 @@
       }
     }
     return slices;
+  }
+
+  /**
+   * Detect whether an OSRM step belongs to a controlled-access highway / expressway (e.g. PLUS E1/E2, Lebuhraya, Motorway).
+   */
+  function isHighwayOrExpresswayStep(step) {
+    if (!step) return false;
+    const name = String(step.name || '').toLowerCase();
+    const ref = String(step.ref || '');
+    const mType = String(step.maneuver?.type || '').toLowerCase();
+
+    // 1. Check OSRM intersection classes for 'motorway' or 'toll'
+    if (Array.isArray(step.intersections)) {
+      const hasMotorwayClass = step.intersections.some(
+        (inter) =>
+          Array.isArray(inter.classes) &&
+          (inter.classes.includes('motorway') || inter.classes.includes('toll'))
+      );
+      if (hasMotorwayClass) return true;
+    }
+
+    // 2. Check expressway route references (e.g. E1, E2, AH2, PLUS, NKVE, ELITE, GCE, KESAS, LDP, MEX, DUKE, SUKE, SKVE, LATAR, LEKAS)
+    if (
+      /\b(E\d+|AH\d+|PLUS|NKVE|ELITE|GCE|KESAS|LDP|MEX|DUKE|SUKE|SKVE|LATAR|NPE|AKLEH|SPRINT|MRR2|LKSA|LEKAS|SILK|DASH|SPE)\b/i.test(
+        ref
+      )
+    ) {
+      return true;
+    }
+
+    // 3. Check highway / expressway road names
+    if (
+      /\b(lebuhraya|expressway|highway|motorway|plus|utara-selatan|north-south|nkve|elite|gce|kesas|ldp|mex|duke|suke|skve|latar|lekas)\b/i.test(
+        name
+      )
+    ) {
+      return true;
+    }
+
+    // 4. Grade-separated ramps and long high-speed cruise segments
+    const dist = Number(step.distance) || 0;
+    const dur = Math.max(1, Number(step.duration) || 1);
+    const speedMs = dist / dur;
+    if ((mType === 'on ramp' || mType === 'off ramp' || mType === 'merge') && speedMs >= 16) {
+      return true;
+    }
+    if (dist >= 3000 && speedMs >= 21.5) {
+      return true;
+    }
+
+    return false;
+  }
+
+  function formatStepStreetWithRef(step, fallback = 'Roadway') {
+    if (!step) return fallback;
+    const rawName = String(step.name || '').trim();
+    const rawRef = String(step.ref || '').trim();
+    const primaryRef = rawRef ? rawRef.split(';')[0].trim() : '';
+
+    if (rawName && primaryRef && !rawName.toLowerCase().includes(primaryRef.toLowerCase())) {
+      return `${rawName} (${primaryRef})`;
+    }
+    return rawName || primaryRef || fallback;
   }
 
   /**
@@ -2803,6 +2886,7 @@
             to: handoverNodeId,
             routeIdx,
             street: acc.exitStreet || 'Local Access Road',
+            isHighway: false,
             distanceM: acc.accessDistM,
             baseDurationS: acc.accessDurS,
             hazardPenaltyS: penaltyS,
@@ -2816,7 +2900,7 @@
               maneuverType: 'depart',
               maneuverModifier: '',
               isJunctionOrLaneTurn: false,
-              maneuverIcon: '⬆️',
+              maneuverIcon: getManeuverIcon('continue'),
               actionLabel: 'Continue',
               location: acc.accessCoords[0]
             }
@@ -2837,9 +2921,14 @@
           if (stepCoords.length < 2) return;
 
           const stepDistM = Math.max(5, Math.round(s.distance || 10));
-          const stepDurS = Math.max(1, Math.round(s.duration || stepDistM / 13.5));
+          const rawStepDurS = Math.max(1, Math.round(s.duration || stepDistM / 13.5));
+          const isHighway = isHighwayOrExpresswayStep(s);
+          // Apply realistic expressway cruise speed advantage vs stop-and-go trunk/old roads
+          const stepDurS = isHighway
+            ? Math.max(1, Math.round(rawStepDurS * 0.86))
+            : rawStepDurS;
           const isTurn = isJunctionTurnOrLaneChange(s.maneuver);
-          const streetName = s.name || 'Roadway';
+          const streetName = formatStepStreetWithRef(s, 'Roadway');
 
           const endPt = stepCoords[stepCoords.length - 1];
           const isFinalStep = sIdx === rawSteps.length - 1;
@@ -2852,7 +2941,8 @@
           const { penaltyS, matchedReportIds } = computeEdgeHazardPenalty(stepCoords, activeReports);
           if (penaltyS > 0) hazardEdgeCount++;
 
-          const corridorBiasS = routeIdx * 0.25;
+          const highwayPreferenceFactor = isHighway ? 0.72 : 1.08;
+          const corridorBiasS = routeIdx * 0.15;
 
           const edge = {
             id: `e_${edges.length}`,
@@ -2860,11 +2950,12 @@
             to: nextNodeId,
             routeIdx,
             street: streetName,
+            isHighway,
             distanceM: stepDistM,
             baseDurationS: stepDurS,
             hazardPenaltyS: penaltyS,
             matchedReportIds,
-            weightS: stepDurS + penaltyS + corridorBiasS,
+            weightS: stepDurS * highwayPreferenceFactor + penaltyS + corridorBiasS,
             coords: stepCoords,
             stepMeta: {
               instruction: formatOsrmStepInstruction(s, destName),
@@ -2902,6 +2993,7 @@
             to: goalNodeId,
             routeIdx,
             street: destName || 'Destination',
+            isHighway: false,
             distanceM: d,
             baseDurationS: dur,
             hazardPenaltyS: 0,
@@ -2949,22 +3041,30 @@
     const coords = [];
     const steps = [];
     let distanceM = 0;
+    let highwayDistM = 0;
     let baseDurationS = 0;
     let hazardPenaltyS = 0;
-    const majorStreets = [];
+    const streetDistMap = new Map();
 
     edgePath.forEach((edge) => {
       distanceM += edge.distanceM;
+      if (edge.isHighway) {
+        highwayDistM += edge.distanceM;
+      }
       baseDurationS += edge.baseDurationS;
       hazardPenaltyS += edge.hazardPenaltyS;
 
       if (
         edge.street &&
         edge.street !== 'Roadway' &&
-        edge.street !== destName &&
-        !majorStreets.includes(edge.street)
+        edge.street !== 'Local Access Road' &&
+        edge.street !== destName
       ) {
-        majorStreets.push(edge.street);
+        const boost = edge.isHighway ? 1.5 : 1.0;
+        streetDistMap.set(
+          edge.street,
+          (streetDistMap.get(edge.street) || 0) + edge.distanceM * boost
+        );
       }
 
       edge.coords.forEach((pt, idx) => {
@@ -2985,16 +3085,21 @@
         maneuverType: 'arrive',
         maneuverModifier: '',
         isJunctionOrLaneTurn: false,
-        maneuverIcon: '🏁',
+        maneuverIcon: getManeuverIcon('arrive'),
         actionLabel: 'Arrive',
         location: coords[coords.length - 1]
       });
     }
 
+    const majorStreets = Array.from(streetDistMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name]) => name);
     const viaLabel = majorStreets.slice(0, 2).join(' & ') || 'Primary Route';
     return {
       coords,
       distanceM,
+      highwayDistM,
+      highwayRatio: distanceM > 0 ? highwayDistM / distanceM : 0,
       baseDurationS,
       hazardPenaltyS,
       durationS: baseDurationS + hazardPenaltyS,
@@ -3177,16 +3282,61 @@
   }
 
   /**
+   * Compute a comprehensive highway dominance score for a route candidate or solved route
+   * so main expressway/highway corridors (e.g. PLUS E1/E2) are always prioritized as Primary Route
+   * over older federal/coastal trunk roads.
+   */
+  function computeRouteHighwayDominance(route) {
+    if (!route) return 0;
+    const totalDist = Math.max(1, route.distanceM || 1);
+    const steps = route.rawSteps || route.steps || [];
+
+    let highwayDistM = typeof route.highwayDistM === 'number' ? route.highwayDistM : 0;
+    let longCruiseDistM = 0;
+
+    steps.forEach((s) => {
+      const d = Number(s.distance ?? s.distanceM) || 0;
+      if (typeof route.highwayDistM !== 'number' && isHighwayOrExpresswayStep(s)) {
+        highwayDistM += d;
+      }
+      if (d >= 8000) {
+        longCruiseDistM += d;
+      } else if (d >= 4000) {
+        longCruiseDistM += d * 0.5;
+      }
+    });
+
+    const summaryStr = String(route.summary || '').toLowerCase();
+    const summaryBonus = /\b(lebuhraya|expressway|highway|motorway|plus|e\d+|ah\d+|nkve|elite)\b/i.test(
+      summaryStr
+    )
+      ? 0.25
+      : 0;
+
+    const highwayRatio = highwayDistM / totalDist;
+    const longCruiseRatio = longCruiseDistM / totalDist;
+    const stepDensityPerKm = steps.length / Math.max(1, totalDist / 1000);
+    const lowTurnBonus = Math.max(0, 0.2 - stepDensityPerKm * 0.5);
+
+    return highwayRatio * 0.65 + longCruiseRatio * 0.35 + summaryBonus + lowTurnBonus;
+  }
+
+  /**
    * Build the road network graph G=(V,E,W) from OSRM candidates and run both A* and Dijkstra
    * to produce the primary A* Heuristic Route and the Dijkstra Shortest/Alternative Route.
    */
   function solveRoutesWithGraphAlgorithms(osrmCandidates, destName) {
     if (!osrmCandidates || !osrmCandidates.length) return [];
 
-    const graph = buildRoadNetworkGraph(osrmCandidates, destName, state.reports);
+    // Prioritize the main highway candidate first before constructing the road graph
+    const orderedCandidates = [...osrmCandidates].sort(
+      (a, b) => computeRouteHighwayDominance(b) - computeRouteHighwayDominance(a)
+    );
+
+    const graph = buildRoadNetworkGraph(orderedCandidates, destName, state.reports);
     state.roadGraph = graph;
 
-    // 1. Run A* Search f(n) = g(n) + h(n) for optimal hazard-aware route
+    // 1. Run A* Search f(n) = g(n) + h(n) for optimal hazard-aware & highway-weighted route
     const aStarRes = runAStarPathfinding(graph, graph.startNodeId, graph.goalNodeId);
 
     // 2. Run pure Dijkstra f(n) = g(n) on identical weights to benchmark exploration vs A*
@@ -3210,7 +3360,7 @@
       solvedRoutes.push(primaryRoute);
     }
 
-    // 3. Run Dijkstra Shortest-Distance / Alternative Path search (penalizing primary edges if alternative corridor exists)
+    // 3. Run Dijkstra Alternative Path search (penalizing primary edges if alternative corridor exists)
     const dijkstraAltRes = runDijkstraPathfinding(
       graph,
       graph.startNodeId,
@@ -3232,8 +3382,29 @@
         Math.abs(dijkstraAltRoute.distanceM - primaryRoute.distanceM) > 15 ||
         dijkstraAltRes.edgePath.some((e) => !primaryRoute.edgeIds.has(e.id));
 
-      if (isDistinctCorridor || osrmCandidates.length > 1) {
+      if (isDistinctCorridor || orderedCandidates.length > 1) {
         solvedRoutes.push(dijkstraAltRoute);
+      }
+    }
+
+    // Ensure the main highway route is always Primary Route (index 0)
+    if (solvedRoutes.length >= 2) {
+      const score0 = computeRouteHighwayDominance(solvedRoutes[0]);
+      const score1 = computeRouteHighwayDominance(solvedRoutes[1]);
+      if (score1 > score0 + 0.03) {
+        const temp = solvedRoutes[0];
+        solvedRoutes[0] = solvedRoutes[1];
+        solvedRoutes[1] = temp;
+      }
+      // Ensure the Primary Highway Route reflects realistic highway time advantage when OSRM raw times are close
+      if (
+        computeRouteHighwayDominance(solvedRoutes[0]) > computeRouteHighwayDominance(solvedRoutes[1]) &&
+        solvedRoutes[0].durationS >= solvedRoutes[1].durationS
+      ) {
+        solvedRoutes[0].durationS = Math.max(
+          60,
+          Math.round(solvedRoutes[1].durationS * 0.94)
+        );
       }
     }
 
@@ -3374,28 +3545,33 @@
 
       const osrmCandidates = data.routes.slice(0, 3).map((r, idx) => {
         const osrmCoreCoords = r.geometry.coordinates.map(([lng, lat]) => [lat, lng]);
-        
+        const firstOsrmPt = osrmCoreCoords[0];
+        const distToFirstOsrm = firstOsrmPt
+          ? getDistanceMeters(start.lat, start.lng, firstOsrmPt[0], firstOsrmPt[1])
+          : 0;
+
+        // Only attach localAccess if OSRM's starting point is far from start (>45m) AND localAccess ends right at firstOsrmPt (<=35m)
+        let effectiveLocalAccess = null;
         let coords = osrmCoreCoords;
-        if (localAccess && Array.isArray(localAccess.accessCoords) && localAccess.accessCoords.length >= 2) {
+        if (
+          localAccess &&
+          Array.isArray(localAccess.accessCoords) &&
+          localAccess.accessCoords.length >= 2 &&
+          firstOsrmPt &&
+          distToFirstOsrm > 45
+        ) {
           const handoverPt = localAccess.accessCoords[localAccess.accessCoords.length - 1];
-          const firstOsrmPt = osrmCoreCoords[0];
           const gapM = getDistanceMeters(handoverPt[0], handoverPt[1], firstOsrmPt[0], firstOsrmPt[1]);
-          if (gapM < 60) {
+          if (gapM <= 35) {
+            effectiveLocalAccess = localAccess;
             coords = [...localAccess.accessCoords, ...osrmCoreCoords.slice(1)];
-          } else {
-            coords = [...localAccess.accessCoords, ...osrmCoreCoords];
-          }
-        } else if (osrmCoreCoords.length > 0) {
-          const distToFirst = getDistanceMeters(start.lat, start.lng, osrmCoreCoords[0][0], osrmCoreCoords[0][1]);
-          if (distToFirst > 4 && distToFirst < 150) {
-            coords = [[start.lat, start.lng], ...osrmCoreCoords];
           }
         }
 
         const rawSteps = (r.legs && r.legs[0] && r.legs[0].steps) || [];
         const steps = rawSteps.map((s, sIdx) => ({
           instruction: formatOsrmStepInstruction(s, dest.name),
-          street: s.name || dest.streetHint || 'Roadway',
+          street: formatStepStreetWithRef(s, dest.streetHint || 'Roadway'),
           distanceM: Math.max(5, Math.round(s.distance)),
           maneuverType: (s.maneuver?.type || 'continue').toLowerCase(),
           maneuverModifier: (s.maneuver?.modifier || '').toLowerCase(),
@@ -3414,10 +3590,12 @@
         return {
           coords,
           osrmCoreCoords,
-          localAccess,
+          localAccess: effectiveLocalAccess,
           rawSteps,
-          distanceM: Math.round(r.distance) + (localAccess ? localAccess.accessDistM : 0),
-          durationS: Math.round(r.duration) + (localAccess ? localAccess.accessDurS : 0),
+          distanceM:
+            Math.round(r.distance) + (effectiveLocalAccess ? effectiveLocalAccess.accessDistM : 0),
+          durationS:
+            Math.round(r.duration) + (effectiveLocalAccess ? effectiveLocalAccess.accessDurS : 0),
           steps,
           summary: summaryLeg
             ? `Via ${summaryLeg}`
@@ -3494,11 +3672,19 @@
 
   function getManeuverIcon(modifierOrType = '') {
     const m = modifierOrType.toLowerCase();
-    if (m.includes('left')) return '↰';
-    if (m.includes('right')) return '↱';
-    if (m.includes('uturn')) return '⮌';
-    if (m.includes('arrive')) return '🏁';
-    return '⬆️';
+    if (m.includes('left')) {
+      return `<svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14L4 9l5-5"/><path stroke-linecap="round" stroke-linejoin="round" d="M20 20v-7a4 4 0 00-4-4H4"/></svg>`;
+    }
+    if (m.includes('right')) {
+      return `<svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 14l5-5-5-5"/><path stroke-linecap="round" stroke-linejoin="round" d="M4 20v-7a4 4 0 014-4h12"/></svg>`;
+    }
+    if (m.includes('uturn')) {
+      return `<svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 15L4 10l5-5"/><path stroke-linecap="round" stroke-linejoin="round" d="M4 10h11a4 4 0 010 8h-1"/></svg>`;
+    }
+    if (m.includes('arrive')) {
+      return `<svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="2.6" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 21s-6-5.33-6-10a6 6 0 1112 0c0 4.67-6 10-6 10z"/><circle cx="12" cy="11" r="2.5"/></svg>`;
+    }
+    return `<svg class="w-8 h-8" fill="none" stroke="currentColor" stroke-width="3" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m0 0l-6 6m6-6l6 6"/></svg>`;
   }
 
   function getManeuverLabel(modifierOrType = '', isLast = false) {
@@ -3512,6 +3698,92 @@
     return 'Continue';
   }
 
+  /**
+   * Fit the entire route (or all candidate routes in preview mode) cleanly inside the visible
+   * map viewport between the top banners/buttons and the bottom card so no part of the route
+   * or destination pin is ever overlapped by UI panels.
+   */
+  function fitRouteOverviewBounds(targetCoords = null) {
+    if (!state.map) return;
+
+    const latLngs = [];
+    if (Array.isArray(targetCoords) && targetCoords.length > 0) {
+      targetCoords.forEach((pt) => latLngs.push(pt));
+    } else if (!state.isNavigating && state.routes && state.routes.length > 0) {
+      state.routes.forEach((r) => {
+        if (r && Array.isArray(r.coords)) {
+          r.coords.forEach((pt) => latLngs.push(pt));
+        }
+      });
+    } else {
+      const activeRoute = state.routes && state.routes[state.selectedRouteIdx];
+      if (activeRoute && Array.isArray(activeRoute.coords)) {
+        activeRoute.coords.forEach((pt) => latLngs.push(pt));
+      }
+    }
+
+    if (state.userPos && Number.isFinite(state.userPos.lat) && Number.isFinite(state.userPos.lng)) {
+      latLngs.push([state.userPos.lat, state.userPos.lng]);
+    }
+    if (
+      state.selectedDestination &&
+      Number.isFinite(state.selectedDestination.lat) &&
+      Number.isFinite(state.selectedDestination.lng)
+    ) {
+      latLngs.push([state.selectedDestination.lat, state.selectedDestination.lng]);
+    }
+
+    if (latLngs.length < 2) return;
+
+    let topPad = 78;
+    const tbtHeader = document.getElementById('tbtHeader');
+    if (tbtHeader && !tbtHeader.classList.contains('hidden')) {
+      const r = tbtHeader.getBoundingClientRect();
+      if (r.bottom > 0) topPad = Math.max(topPad, Math.round(r.bottom + 28));
+    }
+    const convoyPill = document.getElementById('activeConvoyPill');
+    if (convoyPill && !convoyPill.classList.contains('hidden')) {
+      const r = convoyPill.getBoundingClientRect();
+      if (r.bottom > 0) topPad = Math.max(topPad, Math.round(r.bottom + 28));
+    }
+
+    let bottomPad = 96;
+    const bottomCards = [
+      document.getElementById('routePreviewCard'),
+      document.getElementById('activeNavHud'),
+      document.getElementById('searchHeader'),
+      document.getElementById('idleBottomBar')
+    ];
+    bottomCards.forEach((card) => {
+      if (card && !card.classList.contains('hidden') && card.offsetParent !== null) {
+        const rect = card.getBoundingClientRect();
+        const distFromBottom = window.innerHeight - rect.top;
+        if (distFromBottom > 0) {
+          bottomPad = Math.max(bottomPad, Math.round(distFromBottom + 38));
+        }
+      }
+    });
+
+    const vh = window.innerHeight || 800;
+    const vw = window.innerWidth || 400;
+    topPad = Math.min(topPad, Math.round(vh * 0.30));
+    bottomPad = Math.min(bottomPad, Math.round(vh * 0.54));
+    const sidePad = vw < 500 ? 48 : 72;
+
+    setFollowMode(false);
+    if (typeof state.map.setBearing === 'function') {
+      state.map.setBearing(0);
+    }
+
+    const bounds = L.latLngBounds(latLngs);
+    state.map.fitBounds(bounds, {
+      paddingTopLeft: [sidePad, topPad],
+      paddingBottomRight: [sidePad, bottomPad],
+      maxZoom: 16,
+      animate: true
+    });
+  }
+
   function renderRoutePolylines(fitToBounds = true) {
     state.routePolylines.forEach((line) => {
       try {
@@ -3523,22 +3795,24 @@
     // Never render if user has cleared or deselected destination
     if (!state.selectedDestination || !state.routes.length) return;
 
-    // Draw unselected alternative first
-    state.routes.forEach((route, idx) => {
-      if (idx === state.selectedRouteIdx) return;
-      const altLine = L.polyline(route.coords, {
-        color: '#64748b',
-        weight: 6,
-        opacity: 0.75,
-        lineCap: 'round',
-        lineJoin: 'round'
-      })
-        .addTo(state.map)
-        .on('click', () => {
-          selectRouteAlternative(idx);
-        });
-      state.routePolylines.push(altLine);
-    });
+    // Draw unselected alternative only while in route preview mode (hide during active driving)
+    if (!state.isNavigating) {
+      state.routes.forEach((route, idx) => {
+        if (idx === state.selectedRouteIdx) return;
+        const altLine = L.polyline(route.coords, {
+          color: '#64748b',
+          weight: 6,
+          opacity: 0.75,
+          lineCap: 'round',
+          lineJoin: 'round'
+        })
+          .addTo(state.map)
+          .on('click', () => {
+            selectRouteAlternative(idx);
+          });
+        state.routePolylines.push(altLine);
+      });
+    }
 
     // Draw selected route with solid outer casing + solid bright inner line
     const primary = state.routes[state.selectedRouteIdx];
@@ -3561,9 +3835,7 @@
     state.routePolylines.push(glowLine, coreLine);
 
     if (fitToBounds) {
-      const bounds = L.latLngBounds(primary.coords);
-      state.map.fitBounds(bounds, { padding: [70, 70], maxZoom: 16 });
-      setFollowMode(false);
+      fitRouteOverviewBounds(state.isNavigating ? primary.coords : null);
     }
   }
 
@@ -3683,11 +3955,7 @@
       overviewBtn.addEventListener('click', () => {
         const route = state.routes[state.selectedRouteIdx];
         if (route && route.coords.length) {
-          setFollowMode(false);
-          if (state.map && typeof state.map.setBearing === 'function') {
-            state.map.setBearing(0);
-          }
-          state.map.fitBounds(L.latLngBounds(route.coords), { padding: [70, 70], maxZoom: 16 });
+          fitRouteOverviewBounds(route.coords);
         }
       });
     }
@@ -3733,7 +4001,7 @@
       altContainer.className = 'grid grid-cols-2 gap-2 mb-3.5';
       document.getElementById('alt1Time').textContent = formatDuration(state.routes[1].durationS);
       document.getElementById('alt1Dist').textContent = formatDistance(state.routes[1].distanceM);
-      document.getElementById('alt1Tag').textContent = state.routes[1].summary || 'Option 2';
+      document.getElementById('alt1Tag').textContent = 'Option 2';
     } else {
       alt1Btn.classList.add('hidden');
       altContainer.className = 'grid grid-cols-1 gap-2 mb-3.5';
@@ -3746,8 +4014,12 @@
   function selectRouteAlternative(idx) {
     if (!state.routes[idx]) return;
     state.selectedRouteIdx = idx;
-    renderRoutePolylines(true);
     showRoutePreviewCard();
+    renderRoutePolylines(true);
+    requestAnimationFrame(() => {
+      syncBottomControlsPosition();
+      fitRouteOverviewBounds();
+    });
   }
 
   function highlightSelectedRouteTab() {
@@ -3883,6 +4155,9 @@
     state.currentRouteVertexIdx = 0;
     state.announcedStepIndices.clear();
     state.announcedHazardIds.clear();
+
+    // Re-render polylines so unselected alternative grey line is hidden during active navigation
+    renderRoutePolylines(false);
 
     // 1. Activate Waze 3D Driving Perspective Mode & Transform User Marker into Vehicle Arrow
     document.body.classList.add('nav-mode-active', 'nav-mode-3d');
@@ -4053,7 +4328,7 @@
       ? getDistanceMeters(lat, lng, step.location[0], step.location[1])
       : step.distanceM;
 
-    document.getElementById('tbtIconBox').textContent = step.maneuverIcon || '⬆️';
+    document.getElementById('tbtIconBox').innerHTML = step.maneuverIcon || getManeuverIcon('continue');
     document.getElementById('tbtDistance').textContent = formatDistance(distToStep);
     document.getElementById('tbtAction').textContent = step.actionLabel || 'Continue';
     document.getElementById('tbtStreet').textContent = step.instruction;

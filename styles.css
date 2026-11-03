@@ -16,7 +16,8 @@ html, body {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
+  height: 100vh;
+  height: 100dvh;
   overflow: hidden;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   user-select: none;
@@ -30,29 +31,43 @@ html, body {
   bottom: 0;
   width: 100vw;
   height: 100vh;
+  height: 100dvh;
   z-index: 1;
   background: #0b1120;
 }
 
-/* Prevent Tailwind CDN preflight from breaking Leaflet map tiles */
+/* Prevent Tailwind CDN preflight from breaking Leaflet map tiles & eliminate rotation seams on mobile GPUs */
 .leaflet-container img,
 .leaflet-tile {
   max-width: none !important;
   max-height: none !important;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  outline: 1px solid transparent;
 }
 
-/* OpenStreetMap Night / Day Theme Tile Styling */
+/* Apply Night Theme filter per-tile (.leaflet-tile) instead of on the rotated .leaflet-tile-pane container
+   to prevent mobile GPU offscreen filter surface diagonal clipping during 3D bearing rotation */
 body:not(.theme-day) .leaflet-tile-pane {
+  filter: none !important;
+}
+
+body:not(.theme-day) .leaflet-tile {
   filter: invert(100%) hue-rotate(180deg) brightness(95%) contrast(90%);
-  transition: filter 0.3s ease;
 }
 
 body.theme-day #map {
   background: #e2e8f0;
 }
 
-body.theme-day .leaflet-tile-pane {
+body.theme-day .leaflet-tile-pane,
+body.theme-day .leaflet-tile {
   filter: none !important;
+}
+
+/* Hide bottom-right attribution strip during active navigation so it never pokes under #activeNavHud on mobile */
+body.nav-mode-active .leaflet-control-attribution {
+  display: none !important;
 }
 
 /* Glassmorphism surfaces */
