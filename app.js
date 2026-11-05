@@ -151,6 +151,9 @@
     selectedRouteIdx: 0,
     routePolylines: [],
     isRerouting: false,
+    lastDistanceToRouteM: 0,
+    offRouteFixCount: 0,
+    lastRerouteAt: 0,
 
     // Active Live Turn-by-Turn Navigation
     isNavigating: false,
@@ -290,17 +293,32 @@
       }
     }
 
-    // If local window didn't find segment within 40m, search entire route
-    if (minPerpDist > 40 && coords.length < 800) {
-      for (let i = 0; i < maxIdx; i++) {
+    // If local window didn't find segment within 40m, search entire route (adaptive stride for long routes)
+    if (minPerpDist > 40) {
+      const stride = coords.length > 2500 ? Math.max(1, Math.floor(coords.length / 1500)) : 1;
+      for (let i = 0; i < maxIdx; i += stride) {
         if (i >= startIdx && i < endIdx) continue;
         const a = coords[i];
-        const b = coords[i + 1];
+        const b = coords[Math.min(maxIdx, i + stride)];
         const proj = projectPointOnSegment(rawLat, rawLng, a[0], a[1], b[0], b[1]);
         if (proj.distM < minPerpDist) {
           minPerpDist = proj.distM;
           bestProj = proj;
           bestSegmentIdx = i;
+        }
+      }
+      if (stride > 1) {
+        const fineStart = Math.max(0, bestSegmentIdx - stride * 2);
+        const fineEnd = Math.min(maxIdx, bestSegmentIdx + stride * 2);
+        for (let i = fineStart; i < fineEnd; i++) {
+          const a = coords[i];
+          const b = coords[i + 1];
+          const proj = projectPointOnSegment(rawLat, rawLng, a[0], a[1], b[0], b[1]);
+          if (proj.distM < minPerpDist) {
+            minPerpDist = proj.distM;
+            bestProj = proj;
+            bestSegmentIdx = i;
+          }
         }
       }
     }
@@ -1208,16 +1226,23 @@
     if (state.isNavigating) {
       // 1. ACTIVE NAVIGATION: High-Precision Map Matching (Snap-to-Road)
       const snap = snapToActiveRoute(lat, lng);
+      state.lastDistanceToRouteM = Number.isFinite(snap.distanceToRouteM) ? snap.distanceToRouteM : 0;
       if (snap.snapped) {
+        state.offRouteFixCount = 0;
         resolvedLat = snap.lat;
         resolvedLng = snap.lng;
         resolvedHeading = snap.bearing;
       } else {
-        // Off-route: vehicle in parking lot, service lane, or taking a detour
+        // Off-route: vehicle in parking lot, service lane, or taking a wrong turn / detour
+        state.offRouteFixCount = (state.offRouteFixCount || 0) + 1;
         resolvedLat = lat;
         resolvedLng = lng;
         if (resolvedHeading === null || Number.isNaN(resolvedHeading)) {
-          resolvedHeading = state.userHeading;
+          if (filteredSpeedKmh > 2.5 && rawMoveDist > 2.0) {
+            resolvedHeading = getBearing(prevPos.lat, prevPos.lng, resolvedLat, resolvedLng);
+          } else {
+            resolvedHeading = state.userHeading;
+          }
         }
       }
     } else {
@@ -4153,6 +4178,8 @@
     state.isNavigating = true;
     state.currentStepIdx = 0;
     state.currentRouteVertexIdx = 0;
+    state.lastDistanceToRouteM = 0;
+    state.offRouteFixCount = 0;
     state.announcedStepIndices.clear();
     state.announcedHazardIds.clear();
 
@@ -4230,11 +4257,18 @@
       return;
     }
 
-    // 2. Auto-reroute if raw GPS deviates > 85 meters from active route
-    const rawDevDist = state.rawGpsPos
-      ? getDistanceMeters(state.rawGpsPos.lat, state.rawGpsPos.lng, lat, lng)
-      : 0;
-    if (rawDevDist > 85 && !state.isRerouting) {
+    // 2. Waze-style automatic route recalculation when driver takes a wrong turn / deviates off-route
+    const distFromRouteM = Number.isFinite(state.lastDistanceToRouteM) ? state.lastDistanceToRouteM : 0;
+    const gpsAcc = Math.min(35, Math.max(0, state.gpsAccuracyM || 10));
+    const offRouteThresholdM = Math.max(45, 32 + gpsAcc * 0.6);
+    const rerouteCooldownElapsed = Date.now() - (state.lastRerouteAt || 0) > 6500;
+
+    if (
+      !state.isRerouting &&
+      rerouteCooldownElapsed &&
+      distFromRouteM > offRouteThresholdM &&
+      (state.offRouteFixCount >= 2 || distFromRouteM > offRouteThresholdM + 25)
+    ) {
       recalculateActiveRoute();
       return;
     }
@@ -4344,15 +4378,48 @@
   async function recalculateActiveRoute() {
     if (!state.selectedDestination || state.isRerouting) return;
     state.isRerouting = true;
+    state.lastRerouteAt = Date.now();
+
+    // Update Turn-by-Turn banner & voice to show Waze-style "Recalculating route..." feedback
+    const tbtActionEl = document.getElementById('tbtAction');
+    const tbtStreetEl = document.getElementById('tbtStreet');
+    const tbtNextEl = document.getElementById('tbtNextStepText');
+    if (tbtActionEl) tbtActionEl.textContent = 'Rerouting';
+    if (tbtStreetEl) tbtStreetEl.textContent = 'Recalculating route...';
+    if (tbtNextEl) tbtNextEl.textContent = 'Finding fastest path from your current road';
+    speakAlert('Recalculating route');
+
     try {
-      const routes = await fetchLiveOsrmRoutes(state.userPos, state.selectedDestination);
-      if (routes && routes.length > 0) {
+      const originPos = state.rawGpsPos && Number.isFinite(state.rawGpsPos.lat)
+        ? state.rawGpsPos
+        : state.userPos;
+      const routes = await fetchLiveOsrmRoutes(originPos, state.selectedDestination);
+      if (routes && routes.length > 0 && state.isNavigating) {
         state.routes = routes;
         state.selectedRouteIdx = 0;
         state.currentStepIdx = 0;
+        state.currentRouteVertexIdx = 0;
+        state.offRouteFixCount = 0;
+        state.lastDistanceToRouteM = 0;
         state.announcedStepIndices.clear();
+
         renderRoutePolylines(false);
+        renderGraphTopologyOverlay();
+
+        // Snap vehicle to the newly calculated route and smoothly align course-up camera
+        const snap = snapToActiveRoute(originPos.lat, originPos.lng);
+        if (snap.snapped) {
+          state.userPos = { lat: snap.lat, lng: snap.lng };
+          state.userHeading = Math.round(snap.bearing || state.userHeading || 0);
+          markerAnimator.animateTo(snap.lat, snap.lng, state.userHeading, 350);
+        }
+
         onLiveNavigationPositionUpdate(state.userPos.lat, state.userPos.lng);
+
+        // If Leader in a Live Convoy, broadcast the updated route to followers
+        if (state.convoy.activeCode && state.convoy.role === 'leader') {
+          syncLeaderStateToConvoy('navigating');
+        }
       }
     } finally {
       state.isRerouting = false;
